@@ -19,10 +19,29 @@
 # NOTE - This logic will fail if any of the filenames have the word 'to' alone with spaces in it...don't do that!
 
 
+# Build exclude arrays from ignore files
+DOWNLOAD_EXCLUDES=()
+if [ -f .s3download-ignore ]; then
+    while IFS= read -r line; do
+        [[ "$line" =~ ^# ]] && continue
+        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+        DOWNLOAD_EXCLUDES+=(--exclude "${line%/}/*")
+    done < .s3download-ignore
+fi
+
+UPLOAD_EXCLUDES=()
+if [ -f .s3upload-ignore ]; then
+    while IFS= read -r line; do
+        [[ "$line" =~ ^# ]] && continue
+        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+        UPLOAD_EXCLUDES+=(--exclude "$line")
+    done < .s3upload-ignore
+fi
+
 ####### DOWNLOAD CHECK ########
 #This will check for differences and print out the file details locally and in the cloud
 echo "-------Download Check---------"
-aws s3 sync s3://tine-pc-backup . --dryrun |awk '{\
+aws s3 sync s3://tine-pc-backup . --dryrun "${DOWNLOAD_EXCLUDES[@]}" |awk '{\
 	#Combine all source filename fields into $3
 	for(i=4; i<=NF; i++) 
 		{if($i=="to") break; else {$3=$3" "$i}};
@@ -42,7 +61,7 @@ aws s3 sync s3://tine-pc-backup . --dryrun |awk '{\
 #This will check for differences and print out the file details locally and in the cloud
 echo
 echo "-------Upload Check---------"
-aws s3 sync . s3://tine-pc-backup --dryrun |awk '{\
+aws s3 sync . s3://tine-pc-backup --dryrun "${UPLOAD_EXCLUDES[@]}" |awk '{\
 	#Combine all source filename fields into $3
 	for(i=4; i<=NF; i++) 
 		{if($i=="to") break; else {$3=$3" "$i}};

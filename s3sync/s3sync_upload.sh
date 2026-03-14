@@ -13,4 +13,14 @@
 #   --delete  (to remove files from S3 that were removed locally)
 #   --dryrun
 echo "Add --delete to the end of this command to also remove files from S3 that were removed locally"
-aws s3 sync . s3://tine-pc-backup $@
+
+EXCLUDES=()
+if [ -f .s3upload-ignore ]; then
+    while IFS= read -r line; do
+        [[ "$line" =~ ^# ]] && continue
+        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+        EXCLUDES+=(--exclude "$line")
+    done < .s3upload-ignore
+fi
+
+aws s3 sync . s3://tine-pc-backup "${EXCLUDES[@]}" $@
