@@ -19,6 +19,16 @@
 # NOTE - This logic will fail if any of the filenames have the word 'to' alone with spaces in it...don't do that!
 
 
+# Optional first arg: local path to sync (default: . for full backup root)
+# Must not start with - to distinguish from flags
+if [ $# -gt 0 ] && [[ "$1" != -* ]]; then
+    LOCAL_PATH="${1%/}"
+    shift
+else
+    LOCAL_PATH="."
+fi
+[ "$LOCAL_PATH" = "." ] && S3_PATH="s3://tine-pc-backup" || S3_PATH="s3://tine-pc-backup/$LOCAL_PATH"
+
 # Build exclude arrays from ignore files
 DOWNLOAD_EXCLUDES=()
 if [ -f .s3download-ignore ]; then
@@ -41,7 +51,7 @@ fi
 ####### DOWNLOAD CHECK ########
 #This will check for differences and print out the file details locally and in the cloud
 echo "-------Download Check---------"
-aws s3 sync s3://tine-pc-backup . --dryrun "${DOWNLOAD_EXCLUDES[@]}" |awk '{\
+aws s3 sync "$S3_PATH" "$LOCAL_PATH" --dryrun "${DOWNLOAD_EXCLUDES[@]}" |awk '{\
 	#Combine all source filename fields into $3
 	for(i=4; i<=NF; i++) 
 		{if($i=="to") break; else {$3=$3" "$i}};
@@ -61,7 +71,7 @@ aws s3 sync s3://tine-pc-backup . --dryrun "${DOWNLOAD_EXCLUDES[@]}" |awk '{\
 #This will check for differences and print out the file details locally and in the cloud
 echo
 echo "-------Upload Check---------"
-aws s3 sync . s3://tine-pc-backup --dryrun "${UPLOAD_EXCLUDES[@]}" |awk '{\
+aws s3 sync "$LOCAL_PATH" "$S3_PATH" --dryrun "${UPLOAD_EXCLUDES[@]}" |awk '{\
 	#Combine all source filename fields into $3
 	for(i=4; i<=NF; i++) 
 		{if($i=="to") break; else {$3=$3" "$i}};

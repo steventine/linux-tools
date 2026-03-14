@@ -13,6 +13,16 @@
 #   --delete  (to remove local files that were removed from the cloud)
 echo "Add --delete to the end of this command to also remove local files that have been removed in S3"
 
+# Optional first arg: local path to sync (default: . for full backup root)
+# Must not start with - to distinguish from flags like --delete
+if [ $# -gt 0 ] && [[ "$1" != -* ]]; then
+    LOCAL_PATH="${1%/}"
+    shift
+else
+    LOCAL_PATH="."
+fi
+[ "$LOCAL_PATH" = "." ] && S3_PATH="s3://tine-pc-backup" || S3_PATH="s3://tine-pc-backup/$LOCAL_PATH"
+
 EXCLUDES=()
 if [ -f .s3download-ignore ]; then
     while IFS= read -r line; do
@@ -23,7 +33,7 @@ if [ -f .s3download-ignore ]; then
 fi
 
 # Run dryrun first to detect any files that would overwrite existing local files
-DRYRUN_OUTPUT=$(aws s3 sync s3://tine-pc-backup . --dryrun "${EXCLUDES[@]}" $@)
+DRYRUN_OUTPUT=$(aws s3 sync "$S3_PATH" "$LOCAL_PATH" --dryrun "${EXCLUDES[@]}" $@)
 
 if [ -z "$DRYRUN_OUTPUT" ]; then
     echo "Already up to date."
@@ -48,4 +58,4 @@ if [ ${#OVERWRITES[@]} -gt 0 ]; then
     [[ "$CONFIRM" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 1; }
 fi
 
-aws s3 sync s3://tine-pc-backup . "${EXCLUDES[@]}" $@
+aws s3 sync "$S3_PATH" "$LOCAL_PATH" "${EXCLUDES[@]}" $@
