@@ -1,0 +1,15 @@
+# To add files to S3, just add them (or a directory) to this folder
+# Then run s3sync_test.sh to check the status.
+#
+# For files to be uploaded, run s3sync_upload.sh --include "file1.txt"
+# For files to be downloaded, run s3sync_download.sh --include "file1.txt"
+#
+# To get all these files:
+#   aws s3 cp s3://tine-pc-backup/s3sync_notes.txt .
+#   aws s3 cp s3://tine-pc-backup/s3sync_download.sh .
+#   aws s3 cp s3://tine-pc-backup/s3sync_test.sh .
+#   aws s3 cp s3://tine-pc-backup/s3sync_upload.sh .
+#
+#Rough costs:
+# Standard Storage (first 14 days)              - 2.3c/GB/month (27c/GB/year)
+# Glacier Infrequent Retrieveal (after 14 days) - 0.4c/GB/month (4.8c/GB/year)
