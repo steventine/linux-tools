@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Disk Usage Report</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #0f172a;
+      color: #e5e7eb;
+    }
+    .app {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 1.5rem 1.25rem 2rem;
+    }
+    h1 {
+      margin: 0 0 0.5rem;
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+    .subtitle {
+      font-size: 0.875rem;
+      color: #9ca3af;
+      margin-bottom: 1.25rem;
+    }
+    .breadcrumb {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.85rem;
+      margin-bottom: 0.75rem;
+      color: #9ca3af;
+    }
+    .breadcrumb span {
+      cursor: default;
+      user-select: none;
+    }
+    .breadcrumb button {
+      background: transparent;
+      border: none;
+      padding: 0;
+      margin: 0;
+      color: #e5e7eb;
+      cursor: pointer;
+      font: inherit;
+    }
+    .breadcrumb button:hover {
+      color: #38bdf8;
+      text-decoration: underline;
+    }
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      font-size: 0.85rem;
+      color: #9ca3af;
+    }
+    .summary-item {
+      background: #020617;
+      border-radius: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #1f2937;
+    }
+    .summary-item strong {
+      display: block;
+      color: #e5e7eb;
+      font-weight: 500;
+      margin-bottom: 0.15rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #020617;
+      border-radius: 0.75rem;
+      overflow: hidden;
+      box-shadow: 0 18px 45px rgba(15,23,42,0.75);
+    }
+    thead {
+      background: #030712;
+    }
+    th, td {
+      padding: 0.6rem 0.8rem;
+      text-align: left;
+      font-size: 0.8rem;
+    }
+    th {
+      font-weight: 500;
+      color: #9ca3af;
+      border-bottom: 1px solid #1f2937;
+      white-space: nowrap;
+    }
+    tbody tr {
+      border-bottom: 1px solid #111827;
+    }
+    tbody tr:last-child {
+      border-bottom: none;
+    }
+    tbody tr:hover {
+      background: #030712;
+    }
+    tbody tr.dir {
+      cursor: pointer;
+    }
+    .name-cell {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .name-main {
+      font-size: 0.82rem;
+    }
+    .name-meta {
+      font-size: 0.7rem;
+      color: #6b7280;
+    }
+    .icon {
+      width: 1rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #6b7280;
+      font-size: 0.85rem;
+    }
+    .size-cell {
+      white-space: nowrap;
+    }
+    .percent {
+      white-space: nowrap;
+    }
+    .bar-cell {
+      width: 180px;
+    }
+    .bar-outer {
+      width: 100%;
+      height: 0.45rem;
+      border-radius: 999px;
+      background: #020617;
+      border: 1px solid #1f2937;
+      overflow: hidden;
+    }
+    .bar-inner {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #38bdf8, #6366f1);
+    }
+    .empty {
+      padding: 0.9rem 0.8rem;
+      color: #6b7280;
+      font-size: 0.82rem;
+    }
+    .hint {
+      margin-top: 0.75rem;
+      font-size: 0.75rem;
+      color: #6b7280;
+    }
+    @media (max-width: 768px) {
+      .app {
+        padding: 1rem 0.75rem 1.5rem;
+      }
+      .bar-cell {
+        display: none;
+      }
+      th:nth-child(4), td:nth-child(4),
+      th:nth-child(5), td:nth-child(5) {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h1>Disk Usage Report</h1>
+    <div class="subtitle">Interactive view of disk space usage for a scanned directory.</div>
+    <div id="breadcrumb" class="breadcrumb"></div>
+    <div id="summary" class="summary"></div>
+    <div id="table-container"></div>
+    <div class="hint">
+      Tip: Click on a folder row to drill down. Use the breadcrumb above to go back up.
+    </div>
+  </div>
+  <script>
+    window.diskData = {"name":"linux-tools","path":".","size":3333068,"fileCount":14,"isDir":true,"children":[{"name":"visualizeDiskSpace","path":"visualizeDiskSpace","size":3310621,"fileCount":5,"isDir":true,"children":[{"name":"onedrive-report.html","path":"visualizeDiskSpace/onedrive-report.html","size":2544343,"fileCount":1,"isDir":false},{"name":"awsbackup-report.html","path":"visualizeDiskSpace/awsbackup-report.html","size":733020,"fileCount":1,"isDir":false},{"name":"index.mjs","path":"visualizeDiskSpace/index.mjs","size":16575,"fileCount":1,"isDir":false},{"name":"test-report.html","path":"visualizeDiskSpace/test-report.html","size":13362,"fileCount":1,"isDir":false},{"name":"README.md","path":"visualizeDiskSpace/README.md","size":3321,"fileCount":1,"isDir":false}]},{"name":"s3sync","path":"s3sync","size":15517,"fileCount":6,"isDir":true,"children":[{"name":"s3sync_test.sh","path":"s3sync/s3sync_test.sh","size":4519,"fileCount":1,"isDir":false},{"name":"s3sync_offload.sh","path":"s3sync/s3sync_offload.sh","size":4107,"fileCount":1,"isDir":false},{"name":"CLAUDE.md","path":"s3sync/CLAUDE.md","size":2743,"fileCount":1,"isDir":false},{"name":"s3sync_download.sh","path":"s3sync/s3sync_download.sh","size":2077,"fileCount":1,"isDir":false},{"name":"s3sync_upload.sh","path":"s3sync/s3sync_upload.sh","size":1395,"fileCount":1,"isDir":false},{"name":"s3sync_notes.txt","path":"s3sync/s3sync_notes.txt","size":676,"fileCount":1,"isDir":false}]},{"name":"findDupFiles","path":"findDupFiles","size":6930,"fileCount":3,"isDir":true,"children":[{"name":"findDups.sh","path":"findDupFiles/findDups.sh","size":5601,"fileCount":1,"isDir":false},{"name":"README.md","path":"findDupFiles/README.md","size":1184,"fileCount":1,"isDir":false},{"name":".claude","path":"findDupFiles/.claude","size":145,"fileCount":1,"isDir":true,"children":[{"name":"settings.local.json","path":"findDupFiles/.claude/settings.local.json","size":145,"fileCount":1,"isDir":false}]}]}]};
+  </script>
+  <script>
+    (function() {
+      const root = window.diskData;
+      const rootSize = root.size || 0;
+      let currentPath = [];
+
+      function humanSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(1024));
+        const value = bytes / Math.pow(1024, i);
+        return value.toFixed(value >= 10 || i === 0 ? 0 : 1) + ' ' + units[i];
+      }
+
+      function findNode(pathArr) {
+        if (pathArr.length === 0) return root;
+        let node = root;
+        for (const segment of pathArr) {
+          if (!node.children) return node;
+          const next = node.children.find(c => c.name === segment && c.isDir);
+          if (!next) return node;
+          node = next;
+        }
+        return node;
+      }
+
+      function renderBreadcrumb(node) {
+        const el = document.getElementById('breadcrumb');
+        el.innerHTML = '';
+        const pathArr = currentPath;
+
+        const makeSep = () => {
+          const span = document.createElement('span');
+          span.textContent = '/';
+          return span;
+        };
+
+        const rootBtn = document.createElement('button');
+        rootBtn.textContent = node.path === '.' ? node.name : (root.name || 'root');
+        rootBtn.onclick = () => {
+          currentPath = [];
+          render();
+        };
+        el.appendChild(rootBtn);
+
+        let accumulated = [];
+        for (let i = 0; i < pathArr.length; i++) {
+          accumulated.push(pathArr[i]);
+          el.appendChild(makeSep());
+          const btn = document.createElement('button');
+          btn.textContent = pathArr[i];
+          btn.onclick = () => {
+            currentPath = pathArr.slice(0, i + 1);
+            render();
+          };
+          el.appendChild(btn);
+        }
+      }
+
+      function renderSummary(node) {
+        const el = document.getElementById('summary');
+        el.innerHTML = '';
+        const items = [];
+
+        items.push({
+          label: 'Current directory',
+          value: node.path === '.' ? (root.name || 'root') : node.path
+        });
+        items.push({
+          label: 'Size (current)',
+          value: humanSize(node.size || 0)
+        });
+        items.push({
+          label: 'Size (entire root)',
+          value: humanSize(rootSize)
+        });
+        if (node.children && node.children.length) {
+          items.push({
+            label: 'Entries in current directory',
+            value: String(node.children.length)
+          });
+        }
+
+        for (const it of items) {
+          const div = document.createElement('div');
+          div.className = 'summary-item';
+          const title = document.createElement('strong');
+          title.textContent = it.label;
+          const val = document.createElement('div');
+          val.textContent = it.value;
+          div.appendChild(title);
+          div.appendChild(val);
+          el.appendChild(div);
+        }
+      }
+
+      function renderTable(node) {
+        const container = document.getElementById('table-container');
+        container.innerHTML = '';
+
+        const children = node.children || [];
+        if (!children.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty';
+          empty.textContent = 'No files or folders directly inside this directory (or scanning was limited by depth).';
+          container.appendChild(empty);
+          return;
+        }
+
+        const table = document.createElement('table');
+        const thead = document.createElement('thead');
+        const trHead = document.createElement('tr');
+        const headers = ['Name', 'Size', 'Files', '% of current', 'Visual (current)', '% of root', 'Visual (root)'];
+        headers.forEach((h, idx) => {
+          const th = document.createElement('th');
+          th.textContent = h;
+          if (idx === 4 || idx === 6) th.className = 'bar-cell';
+          trHead.appendChild(th);
+        });
+        thead.appendChild(trHead);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        const parentSize = node.size || 0;
+
+        for (const child of children) {
+          const tr = document.createElement('tr');
+          tr.className = child.isDir ? 'dir' : '';
+
+          // Name
+          const tdName = document.createElement('td');
+          tdName.className = 'name-cell';
+          const icon = document.createElement('span');
+          icon.className = 'icon';
+          icon.textContent = child.isDir ? '📁' : '📄';
+          const nameWrap = document.createElement('div');
+          const main = document.createElement('div');
+          main.className = 'name-main';
+          main.textContent = child.name;
+          nameWrap.appendChild(main);
+          if (!child.isDir) {
+            const meta = document.createElement('div');
+            meta.className = 'name-meta';
+            meta.textContent = child.path === '.' ? '' : child.path;
+            nameWrap.appendChild(meta);
+          }
+          tdName.appendChild(icon);
+          tdName.appendChild(nameWrap);
+          tr.appendChild(tdName);
+
+          // Size
+          const tdSize = document.createElement('td');
+          tdSize.className = 'size-cell';
+          tdSize.textContent = humanSize(child.size || 0);
+          tr.appendChild(tdSize);
+
+          // Files
+          const tdFiles = document.createElement('td');
+          tdFiles.className = 'size-cell';
+          tdFiles.textContent = child.isDir ? (child.fileCount ?? 0) : 1;
+          tr.appendChild(tdFiles);
+
+          // % current
+          const pctCurrent = parentSize > 0 ? (child.size / parentSize) * 100 : 0;
+          const tdPctCurrent = document.createElement('td');
+          tdPctCurrent.className = 'percent';
+          tdPctCurrent.textContent = pctCurrent.toFixed(pctCurrent >= 10 ? 0 : 1) + '%';
+          tr.appendChild(tdPctCurrent);
+
+          // Visual (current)
+          const tdBarCurrent = document.createElement('td');
+          tdBarCurrent.className = 'bar-cell';
+          const barOuterCurrent = document.createElement('div');
+          barOuterCurrent.className = 'bar-outer';
+          const barInnerCurrent = document.createElement('div');
+          barInnerCurrent.className = 'bar-inner';
+          barInnerCurrent.style.width = Math.max(0.5, pctCurrent) + '%';
+          barOuterCurrent.appendChild(barInnerCurrent);
+          tdBarCurrent.appendChild(barOuterCurrent);
+          tr.appendChild(tdBarCurrent);
+
+          // % root
+          const pctRoot = rootSize > 0 ? (child.size / rootSize) * 100 : 0;
+          const tdPctRoot = document.createElement('td');
+          tdPctRoot.className = 'percent';
+          tdPctRoot.textContent = pctRoot.toFixed(pctRoot >= 10 ? 0 : 1) + '%';
+          tr.appendChild(tdPctRoot);
+
+          // Visual (root)
+          const tdBarRoot = document.createElement('td');
+          tdBarRoot.className = 'bar-cell';
+          const barOuterRoot = document.createElement('div');
+          barOuterRoot.className = 'bar-outer';
+          const barInnerRoot = document.createElement('div');
+          barInnerRoot.className = 'bar-inner';
+          barInnerRoot.style.width = Math.max(0.5, pctRoot) + '%';
+          barOuterRoot.appendChild(barInnerRoot);
+          tdBarRoot.appendChild(barOuterRoot);
+          tr.appendChild(tdBarRoot);
+
+          if (child.isDir) {
+            tr.addEventListener('click', () => {
+              currentPath = [...currentPath, child.name];
+              render();
+            });
+          }
+
+          tbody.appendChild(tr);
+        }
+
+        table.appendChild(tbody);
+        container.appendChild(table);
+      }
+
+      function render() {
+        const node = findNode(currentPath);
+        renderBreadcrumb(node);
+        renderSummary(node);
+        renderTable(node);
+      }
+
+      render();
+    })();
+  </script>
+</body>
+</html>
