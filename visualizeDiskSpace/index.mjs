@@ -326,7 +326,7 @@ function generateHtml(tree) {
     <div id="summary" class="summary"></div>
     <div id="table-container"></div>
     <div class="hint">
-      Tip: Click on a folder row to drill down. Use the breadcrumb above to go back up.
+      Tip: Click on a folder row to drill down. Use the breadcrumb or the browser back button to go up.
     </div>
   </div>
   <script>
@@ -337,6 +337,20 @@ function generateHtml(tree) {
       const root = window.diskData;
       const rootSize = root.size || 0;
       let currentPath = [];
+
+      function parsePathFromHash() {
+        const h = location.hash.slice(1).trim();
+        if (!h) return [];
+        return h.split('/').map(function(s) { return decodeURIComponent(s); }).filter(Boolean);
+      }
+      function pathToHash(pathArr) {
+        return pathArr.length ? '#' + pathArr.map(encodeURIComponent).join('/') : '';
+      }
+      function navigateTo(pathArr) {
+        currentPath = pathArr;
+        history.pushState({ path: currentPath }, '', location.pathname + location.search + pathToHash(currentPath));
+        render();
+      }
 
       function humanSize(bytes) {
         if (bytes === 0) return '0 B';
@@ -371,22 +385,14 @@ function generateHtml(tree) {
 
         const rootBtn = document.createElement('button');
         rootBtn.textContent = node.path === '.' ? node.name : (root.name || 'root');
-        rootBtn.onclick = () => {
-          currentPath = [];
-          render();
-        };
+        rootBtn.onclick = function() { navigateTo([]); };
         el.appendChild(rootBtn);
 
-        let accumulated = [];
         for (let i = 0; i < pathArr.length; i++) {
-          accumulated.push(pathArr[i]);
           el.appendChild(makeSep());
           const btn = document.createElement('button');
           btn.textContent = pathArr[i];
-          btn.onclick = () => {
-            currentPath = pathArr.slice(0, i + 1);
-            render();
-          };
+          btn.onclick = (function(idx) { return function() { navigateTo(pathArr.slice(0, idx + 1)); }; })(i);
           el.appendChild(btn);
         }
       }
@@ -533,9 +539,8 @@ function generateHtml(tree) {
           tr.appendChild(tdBarRoot);
 
           if (child.isDir) {
-            tr.addEventListener('click', () => {
-              currentPath = [...currentPath, child.name];
-              render();
+            tr.addEventListener('click', function() {
+              navigateTo(currentPath.concat(child.name));
             });
           }
 
@@ -553,6 +558,12 @@ function generateHtml(tree) {
         renderTable(node);
       }
 
+      currentPath = parsePathFromHash();
+      history.replaceState({ path: currentPath }, '', location.pathname + location.search + pathToHash(currentPath));
+      window.addEventListener('popstate', function(e) {
+        currentPath = (e.state && e.state.path) ? e.state.path : parsePathFromHash();
+        render();
+      });
       render();
     })();
   </script>
