@@ -1,0 +1,26 @@
+{
+  "port": 3000,
+  "scans": [
+    {
+      "name": "AWS to OneDrive",
+      "dirs": [
+        { "path": "/mnt/c/Users/steve/AwsBackup", "thumbnails": true },
+        { "path": "/mnt/c/Users/steve/OneDrive",  "thumbnails": false }
+      ]
+    },
+    {
+      "name": "AWSBackup",
+      "dirs": [
+        { "path": "/mnt/c/Users/steve/AwsBackup", "thumbnails": true }
+      ]
+    },
+    {
+      "name": "OneDrive",
+      "dirs": [
+        { "path": "/mnt/c/Users/steve/OneDrive", "thumbnails": false }
+      ]
+    }
+  ],
+  "logFile": "deletions.log",
+  "useTrash": false
+}

@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Duplicate File Reviewer</title>
+  <style>
+    :root {
+      --bg: #f0f2f5;
+      --surface: #ffffff;
+      --border: #dde1e7;
+      --text: #1a1a2e;
+      --text-muted: #6b7280;
+      --header-bg: #1e293b;
+      --header-text: #f8fafc;
+      --accent: #3b82f6;
+      --delete-bg: #fee2e2;
+      --delete-border: #dc2626;
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--header-bg);
+      color: var(--header-text);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    }
+
+    header h1 { font-size: 1.1rem; font-weight: 600; white-space: nowrap; }
+
+    #scan-select {
+      padding: 6px 10px;
+      border-radius: var(--radius);
+      border: 1px solid #475569;
+      background: #334155;
+      color: var(--header-text);
+      font-size: 0.9rem;
+      min-width: 180px;
+    }
+
+    .btn {
+      padding: 6px 14px;
+      border-radius: var(--radius);
+      border: none;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: opacity .15s;
+    }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn:not(:disabled):hover { opacity: .85; }
+
+    .btn-danger { background: #dc2626; color: #fff; }
+    .btn-ghost  { background: #475569; color: #f1f5f9; }
+
+    #status-msg {
+      font-size: 0.82rem;
+      color: #94a3b8;
+      margin-left: auto;
+    }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      padding: 12px 20px 0;
+      background: var(--header-bg);
+    }
+
+    .tab {
+      padding: 8px 18px;
+      border: none;
+      border-radius: var(--radius) var(--radius) 0 0;
+      background: #334155;
+      color: #94a3b8;
+      cursor: pointer;
+      font-size: 0.88rem;
+      transition: background .15s, color .15s;
+    }
+    .tab:hover { background: #475569; color: #f1f5f9; }
+    .tab.active { background: var(--bg); color: var(--text); font-weight: 600; }
+
+    .sort-btn {
+      margin-left: auto;
+      padding: 5px 12px;
+      border: 1px solid #475569;
+      border-radius: var(--radius) var(--radius) 0 0;
+      background: transparent;
+      color: #94a3b8;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: background .15s, color .15s;
+      white-space: nowrap;
+    }
+    .sort-btn:hover  { background: #475569; color: #f1f5f9; }
+    .sort-btn.active { background: #475569; color: #f1f5f9; font-weight: 600; }
+
+    /* ── Main content ── */
+    main {
+      padding: 20px;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding-bottom: 100px;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-muted);
+    }
+    .empty-state p { margin-top: 8px; font-size: 0.95rem; }
+
+    /* ── Group cards ── */
+    .group {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 16px;
+      overflow: hidden;
+      transition: opacity .2s;
+    }
+    .group.resolved { opacity: .6; }
+
+    .files-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1px;
+      background: var(--border);
+    }
+
+    /* ── File cards ── */
+    .file-card {
+      background: var(--surface);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: background .2s;
+    }
+    .file-card.to-delete { background: var(--delete-bg); border-left: 3px solid var(--delete-border); }
+
+    /* ── Preview area ── */
+    .file-preview {
+      width: 100%;
+      height: 180px;
+      background: #f1f5f9;
+      border-radius: 4px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .file-preview img { width: 100%; height: 100%; object-fit: contain; }
+
+    .file-preview video { width: 100%; max-height: 180px; }
+
+    .file-preview audio { width: 100%; padding: 0 8px; }
+
+    .preview-icon {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 0.82rem;
+    }
+    .preview-icon svg { opacity: .4; }
+
+    /* ── Card row (info + actions side by side) ── */
+    .card-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .ext-badge {
+      flex-shrink: 0;
+      background: #e2e8f0;
+      padding: 3px 7px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: #475569;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    /* ── File info ── */
+    .file-info { flex: 1; min-width: 0; }
+
+    .file-name {
+      font-weight: 600;
+      font-size: 0.88rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .file-dir {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
+    }
+
+    .file-meta {
+      margin-top: 6px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .deleted-tag { color: #dc2626; font-weight: 600; }
+
+    /* ── File action buttons ── */
+    .file-actions {
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-end;
+    }
+
+    /* "Delete this file" toggle */
+    .delete-btn {
+      padding: 6px 12px;
+      border-radius: var(--radius);
+      border: 1.5px solid #dc2626;
+      background: transparent;
+      color: #dc2626;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .15s, color .15s;
+    }
+    .delete-btn:hover   { background: #fee2e2; }
+    .delete-btn.active  { background: #dc2626; color: #fff; }
+    .delete-btn.active:hover { background: #b91c1c; }
+
+    /* "Show / Hide preview" toggle */
+    .preview-toggle-btn {
+      padding: 4px 10px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: transparent;
+      cursor: pointer;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      transition: background .15s, color .15s;
+    }
+    .preview-toggle-btn:hover  { background: #e2e8f0; color: var(--text); }
+    .preview-toggle-btn.active { background: #e2e8f0; color: var(--text); }
+
+    /* ── Group footer ── */
+    .group-footer {
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-top: 1px solid var(--border);
+      background: #f8fafc;
+    }
+
+    .skip-btn {
+      font-size: 0.8rem;
+      padding: 4px 12px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: transparent;
+      cursor: pointer;
+      color: var(--text-muted);
+    }
+    .skip-btn:hover  { background: #e2e8f0; }
+    .skip-btn.active { background: #e2e8f0; color: var(--text); font-weight: 600; }
+
+    .undo-btn {
+      font-size: 0.8rem;
+      padding: 4px 12px;
+      border-radius: var(--radius);
+      border: 1px solid #cbd5e1;
+      background: transparent;
+      cursor: pointer;
+      color: #64748b;
+    }
+    .undo-btn:hover { background: #e2e8f0; }
+
+    .name-only-label {
+      font-size: 0.75rem;
+      color: #92400e;
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-left: auto;
+    }
+
+    /* ── Floating action button ── */
+    #fab { position: fixed; bottom: 28px; right: 28px; z-index: 200; }
+    #fab.hidden { display: none; }
+    #review-btn {
+      padding: 14px 24px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border-radius: 50px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.25);
+    }
+
+    /* ── Modal ── */
+    #modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.5);
+      z-index: 300;
+      align-items: center;
+      justify-content: center;
+    }
+    #modal-backdrop.open { display: flex; }
+
+    .modal {
+      background: var(--surface);
+      border-radius: var(--radius);
+      width: 560px;
+      max-width: 95vw;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,.3);
+    }
+
+    .modal-header { padding: 18px 20px; border-bottom: 1px solid var(--border); font-size: 1rem; font-weight: 600; }
+    .modal-body   { flex: 1; overflow-y: auto; padding: 16px 20px; }
+    .modal-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
+
+    .modal-file-list { display: flex; flex-direction: column; gap: 6px; }
+
+    .modal-file-item {
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: var(--delete-bg);
+      border: 1px solid #fca5a5;
+      font-size: 0.82rem;
+      word-break: break-all;
+      color: #7f1d1d;
+    }
+    .modal-file-item.ok   { background: #dcfce7; border-color: #86efac; color: #14532d; }
+    .modal-file-item.fail { background: #fef2f2; border-color: #f87171; color: #7f1d1d; }
+
+    /* ── Spinner ── */
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Duplicate File Reviewer</h1>
+  <select id="scan-select"></select>
+  <button id="refresh-btn" class="btn btn-ghost">Refresh</button>
+  <span id="status-msg"></span>
+</header>
+
+<div class="tabs">
+  <button class="tab active" data-tab="confirmed">Confirmed Duplicates (<span id="count-confirmed">0</span>)</button>
+  <button class="tab" data-tab="nameOnly">Name Match Only (<span id="count-nameOnly">0</span>)</button>
+  <button id="sort-btn" class="sort-btn">Sort by size</button>
+</div>
+
+<main id="groups-container"></main>
+
+<div id="fab" class="hidden">
+  <button id="review-btn" class="btn btn-danger">Review &amp; Delete (<span id="delete-count">0</span> files<span id="delete-size"></span>)</button>
+</div>
+
+<div id="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header" id="modal-title">Confirm Deletions</div>
+    <div class="modal-body">
+      <div class="modal-file-list" id="modal-file-list"></div>
+    </div>
+    <div class="modal-footer">
+      <button id="modal-cancel" class="btn btn-ghost">Cancel</button>
+      <button id="modal-confirm" class="btn btn-danger">Delete Files</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+
+const state = {
+  scans: [],
+  currentScan: 0,
+  dirThumbnails: [],  // [{ path, thumbnails }] for the active scan
+  dups: { confirmed: [], nameOnly: [] },
+  tab: 'confirmed',
+  // decisions[tab][groupIndex] = { skip: bool, deleteIndices: Set<number> }
+  // undefined = undecided
+  decisions: { confirmed: {}, nameOnly: {} },
+  // Tracks files explicitly expanded for preview when thumbnails are off
+  expandedPreviews: new Set(), // keys: "tab-groupIdx-fileIdx"
+  deletedPaths: new Set(),
+  sortBySize: false,
+};
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function esc(str) {
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function formatSize(bytes) {
+  if (bytes == null) return '?';
+  if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + ' GB';
+  if (bytes >= 1e6) return (bytes / 1e6).toFixed(1) + ' MB';
+  if (bytes >= 1e3) return (bytes / 1e3).toFixed(1) + ' KB';
+  return bytes + ' B';
+}
+
+function formatDate(dateStr) {
+  if (!dateStr || dateStr === '(unreadable)') return dateStr || '';
+  return dateStr.split(' ')[0]; // "YYYY-MM-DD HH:MM:SS ..." → "YYYY-MM-DD"
+}
+
+function fileExt(path) {
+  const m = path.match(/\.([^./\\]+)$/);
+  return m ? m[1].toLowerCase() : '';
+}
+
+function fileName(path) {
+  return path.replace(/\\/g, '/').split('/').pop();
+}
+
+function fileDir(path) {
+  const name = fileName(path);
+  return path.slice(0, path.length - name.length);
+}
+
+const IMAGE_EXTS = new Set(['jpg','jpeg','png','gif','webp','bmp','tiff','tif']);
+const VIDEO_EXTS = new Set(['mp4','webm','mov','avi','mkv','m4v','wmv']);
+const AUDIO_EXTS = new Set(['mp3','m4a','ogg','wav','flac','aac']);
+
+// Returns whether thumbnails should be shown for a given file path,
+// based on which configured directory it belongs to.
+function thumbnailsEnabled(filePath) {
+  let best = null; // longest matching dir wins (most specific)
+  for (const d of state.dirThumbnails) {
+    const prefix = d.path.endsWith('/') ? d.path : d.path + '/';
+    if (filePath.startsWith(prefix) || filePath === d.path) {
+      if (!best || d.path.length > best.path.length) best = d;
+    }
+  }
+  return best ? best.thumbnails : false;
+}
+
+function fileIconHtml(ext) {
+  return `<div class="preview-icon">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+    </svg>
+    <span class="ext-badge" style="margin-top:0">${esc(ext || 'file')}</span>
+  </div>`;
+}
+
+// Renders the content inside the preview box. Always shows media; the caller
+// decides whether to render the box at all.
+function previewContentHtml(path) {
+  const ext = fileExt(path);
+  const url = `/api/preview?path=${encodeURIComponent(path)}`;
+  if (IMAGE_EXTS.has(ext)) {
+    return `<img src="${url}" alt="preview" loading="lazy"
+      onerror="this.parentElement.innerHTML=fileIconHtml('${esc(ext)}')">`;
+  }
+  if (VIDEO_EXTS.has(ext)) {
+    return `<video src="${url}" controls preload="none"></video>`;
+  }
+  if (AUDIO_EXTS.has(ext)) {
+    return `<audio src="${url}" controls preload="none"></audio>`;
+  }
+  return fileIconHtml(ext);
+}
+
+// ── Decision helpers ───────────────────────────────────────────────────────
+
+function getDecision(tab, idx) {
+  return state.decisions[tab][idx]; // may be undefined
+}
+
+function isMarkedForDelete(tab, idx, fi) {
+  const d = getDecision(tab, idx);
+  return d ? d.deleteIndices.has(fi) : false;
+}
+
+function isGroupResolved(tab, idx) {
+  const d = getDecision(tab, idx);
+  if (!d) return false;
+  return d.skip || d.deleteIndices.size > 0;
+}
+
+// Files queued for deletion across all groups, with size metadata
+function filesToDeleteInfo() {
+  const result = [];
+  for (const tab of ['confirmed', 'nameOnly']) {
+    for (const [idxStr, d] of Object.entries(state.decisions[tab])) {
+      if (!d || d.skip || d.deleteIndices.size === 0) continue;
+      const group = state.dups[tab][parseInt(idxStr, 10)];
+      if (!group) continue;
+      group.files.forEach((f, fi) => {
+        if (d.deleteIndices.has(fi) && !state.deletedPaths.has(f.path)) {
+          result.push({ path: f.path, size: f.size ?? 0 });
+        }
+      });
+    }
+  }
+  return result;
+}
+
+function filesToDelete() {
+  return filesToDeleteInfo().map(f => f.path);
+}
+
+function updateFab() {
+  const info  = filesToDeleteInfo();
+  const count = info.length;
+  const total = info.reduce((sum, f) => sum + f.size, 0);
+  document.getElementById('delete-count').textContent = count;
+  document.getElementById('delete-size').textContent  = count > 0 ? ` · ${formatSize(total)}` : '';
+  document.getElementById('fab').classList.toggle('hidden', count === 0);
+}
+
+function setStatus(msg) {
+  document.getElementById('status-msg').textContent = msg;
+}
+
+// ── Rendering ──────────────────────────────────────────────────────────────
+
+function renderGroups() {
+  const container = document.getElementById('groups-container');
+  const groups = state.dups[state.tab];
+
+  document.getElementById('count-confirmed').textContent = state.dups.confirmed.length;
+  document.getElementById('count-nameOnly').textContent  = state.dups.nameOnly.length;
+
+  if (!groups || groups.length === 0) {
+    container.innerHTML = `<div class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5">
+        <circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/>
+      </svg>
+      <p>No ${state.tab === 'confirmed' ? 'confirmed duplicates' : 'name-only matches'} found.</p>
+    </div>`;
+    return;
+  }
+
+  const order = groups.map((_, i) => i);
+  if (state.sortBySize) {
+    order.sort((a, b) => {
+      const maxSize = g => Math.max(...g.files.map(f => f.size ?? 0));
+      return maxSize(groups[b]) - maxSize(groups[a]);
+    });
+  }
+  container.innerHTML = order.map(i => renderGroup(groups[i], state.tab, i)).join('');
+}
+
+function renderGroup(group, tab, idx) {
+  const d       = getDecision(tab, idx);
+  const resolved = isGroupResolved(tab, idx);
+  const label   = group.label ?? null;
+
+  const filesHtml = group.files.map((file, fi) => {
+    const ext     = fileExt(file.path);
+    const gone    = state.deletedPaths.has(file.path);
+    const marked  = !gone && isMarkedForDelete(tab, idx, fi);
+    const previewKey = `${tab}-${idx}-${fi}`;
+    const expanded   = state.expandedPreviews.has(previewKey);
+
+    // Show the preview box when:
+    // - thumbnails are on for this file's directory (for images), OR
+    // - the user expanded this specific file, OR
+    // - the file is video/audio (player loads on demand, not upfront)
+    const thumbs = thumbnailsEnabled(file.path);
+    const showBox = !gone && (
+      (IMAGE_EXTS.has(ext) && (thumbs || expanded)) ||
+      VIDEO_EXTS.has(ext) ||
+      AUDIO_EXTS.has(ext)
+    );
+
+    // Show the expand toggle only for images when thumbnails are off for this dir
+    const canExpand = IMAGE_EXTS.has(ext) && !thumbs && !gone;
+
+    let cls = 'file-card';
+    if (marked) cls += ' to-delete';
+
+    const previewBox = showBox
+      ? `<div class="file-preview">${previewContentHtml(file.path)}</div>`
+      : '';
+
+    const previewToggle = canExpand
+      ? `<button class="preview-toggle-btn${expanded ? ' active' : ''}"
+           onclick="togglePreview('${tab}',${idx},${fi})">
+           ${expanded ? 'Hide preview' : '👁 Show preview'}
+         </button>`
+      : '';
+
+    const deleteBtn = gone
+      ? `<span class="deleted-tag">Deleted</span>`
+      : `<button class="delete-btn${marked ? ' active' : ''}"
+           onclick="toggleDelete('${tab}',${idx},${fi})">
+           ${marked ? '✕ Will delete' : '🗑 Delete this file'}
+         </button>`;
+
+    return `<div class="${cls}">
+      ${previewBox}
+      <div class="card-row">
+        <span class="ext-badge">${esc(ext || '?')}</span>
+        <div class="file-info">
+          <div class="file-name" title="${esc(file.path)}">${esc(fileName(file.path))}</div>
+          <div class="file-dir"  title="${esc(file.path)}">${esc(fileDir(file.path))}</div>
+          <div class="file-meta">
+            <span>${formatDate(file.date)}</span>
+            <span>${formatSize(file.size)}</span>
+            ${gone ? '<span class="deleted-tag">Deleted</span>' : ''}
+          </div>
+        </div>
+        <div class="file-actions">
+          ${previewToggle}
+          ${deleteBtn}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="group${resolved ? ' resolved' : ''}" id="group-${tab}-${idx}">
+    <div class="files-grid">${filesHtml}</div>
+    <div class="group-footer">
+      <button class="skip-btn${d?.skip ? ' active' : ''}"
+        onclick="skipGroup('${tab}',${idx})">${d?.skip ? '⊘ Skipped' : 'Skip'}</button>
+      ${resolved ? `<button class="undo-btn" onclick="undoDecision('${tab}',${idx})">Undo</button>` : ''}
+      ${label ? `<span class="name-only-label">${esc(label)}</span>` : ''}
+    </div>
+  </div>`;
+}
+
+// Re-render a single group in place
+function rerenderGroup(tab, idx) {
+  const el = document.getElementById(`group-${tab}-${idx}`);
+  if (!el) return;
+  el.outerHTML = renderGroup(state.dups[tab][idx], tab, idx);
+}
+
+// ── Decision handlers (called from inline onclick) ─────────────────────────
+
+function toggleDelete(tab, idx, fi) {
+  let d = state.decisions[tab][idx];
+  if (!d) {
+    d = { skip: false, deleteIndices: new Set() };
+    state.decisions[tab][idx] = d;
+  }
+  d.skip = false;
+  if (d.deleteIndices.has(fi)) {
+    d.deleteIndices.delete(fi);
+    if (d.deleteIndices.size === 0) delete state.decisions[tab][idx];
+  } else {
+    d.deleteIndices.add(fi);
+  }
+  rerenderGroup(tab, idx);
+  updateFab();
+}
+
+function skipGroup(tab, idx) {
+  const d = state.decisions[tab][idx];
+  if (d?.skip) {
+    // Toggle skip off
+    delete state.decisions[tab][idx];
+  } else {
+    state.decisions[tab][idx] = { skip: true, deleteIndices: new Set() };
+  }
+  rerenderGroup(tab, idx);
+  updateFab();
+}
+
+function undoDecision(tab, idx) {
+  delete state.decisions[tab][idx];
+  rerenderGroup(tab, idx);
+  updateFab();
+}
+
+function togglePreview(tab, idx, fi) {
+  const key = `${tab}-${idx}-${fi}`;
+  if (state.expandedPreviews.has(key)) {
+    state.expandedPreviews.delete(key);
+  } else {
+    state.expandedPreviews.add(key);
+  }
+  rerenderGroup(tab, idx);
+}
+
+// ── API calls ──────────────────────────────────────────────────────────────
+
+async function loadConfig() {
+  const res  = await fetch('/api/config');
+  const data = await res.json();
+  state.scans = data.scans;
+
+  const sel = document.getElementById('scan-select');
+  sel.innerHTML = data.scans.map(s =>
+    `<option value="${s.index}">${esc(s.name)}${s.cached ? '' : ' (no cache)'}</option>`
+  ).join('');
+
+  await switchScan(0);
+}
+
+async function switchScan(index) {
+  state.currentScan = index;
+  state.decisions   = { confirmed: {}, nameOnly: {} };
+  state.deletedPaths = new Set();
+  state.expandedPreviews = new Set();
+  updateFab();
+
+  const scan = state.scans[index];
+  state.dirThumbnails = scan?.dirs ?? [];
+
+  if (!scan?.cached) {
+    state.dups = { confirmed: [], nameOnly: [] };
+    renderGroups();
+    setStatus('No cached data — click Refresh to scan.');
+    return;
+  }
+
+  setStatus('Loading…');
+  try {
+    const res = await fetch(`/api/dups/${index}`);
+    if (!res.ok) throw new Error(await res.text());
+    state.dups = await res.json();
+    renderGroups();
+    const total = state.dups.confirmed.length + state.dups.nameOnly.length;
+    setStatus(`${total} duplicate groups loaded.`);
+  } catch (err) {
+    setStatus(`Error: ${err.message}`);
+  }
+}
+
+async function refresh() {
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Scanning…';
+  setStatus('Running findDups.sh — this may take a while…');
+
+  try {
+    const res  = await fetch(`/api/refresh/${state.currentScan}`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    state.decisions = { confirmed: {}, nameOnly: {} };
+    state.deletedPaths = new Set();
+    state.expandedPreviews = new Set();
+    updateFab();
+
+    const dupRes = await fetch(`/api/dups/${state.currentScan}`);
+    state.dups = await dupRes.json();
+    renderGroups();
+    setStatus(`Scan complete — ${data.confirmed} confirmed, ${data.nameOnly} name-only.`);
+
+    const opt = document.querySelector(`#scan-select option[value="${state.currentScan}"]`);
+    if (opt) opt.textContent = state.scans[state.currentScan].name;
+  } catch (err) {
+    setStatus(`Refresh failed: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Refresh';
+  }
+}
+
+// ── Delete flow ────────────────────────────────────────────────────────────
+
+function openModal() {
+  const paths = filesToDelete();
+  if (paths.length === 0) return;
+
+  document.getElementById('modal-title').textContent =
+    `Delete ${paths.length} file${paths.length !== 1 ? 's' : ''}?`;
+  document.getElementById('modal-file-list').innerHTML =
+    paths.map(p => `<div class="modal-file-item">${esc(p)}</div>`).join('');
+  document.getElementById('modal-confirm').disabled = false;
+  document.getElementById('modal-confirm').textContent = 'Delete Files';
+  document.getElementById('modal-cancel').textContent = 'Cancel';
+  document.getElementById('modal-backdrop').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modal-backdrop').classList.remove('open');
+}
+
+async function confirmDelete() {
+  const paths     = filesToDelete();
+  const confirmBtn = document.getElementById('modal-confirm');
+  confirmBtn.disabled = true;
+  confirmBtn.innerHTML = '<span class="spinner"></span>Deleting…';
+
+  try {
+    const res = await fetch('/api/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths }),
+    });
+    const { results } = await res.json();
+
+    // Annotate each modal row with result
+    const items = document.querySelectorAll('.modal-file-item');
+    results.forEach((r, i) => {
+      const el = items[i];
+      if (!el) return;
+      if (r.ok) {
+        el.classList.add('ok');
+        el.textContent = `✓ ${r.path}`;
+        state.deletedPaths.add(r.path);
+      } else {
+        el.classList.add('fail');
+        el.textContent = `✗ ${r.path} — ${r.error}`;
+      }
+    });
+
+    // Re-render groups that had any deletions
+    for (const tab of ['confirmed', 'nameOnly']) {
+      for (const idxStr of Object.keys(state.decisions[tab])) {
+        const idx   = parseInt(idxStr, 10);
+        const group = state.dups[tab][idx];
+        if (!group) continue;
+        if (group.files.some(f => state.deletedPaths.has(f.path))) {
+          rerenderGroup(tab, idx);
+        }
+      }
+    }
+    updateFab();
+
+    const failed = results.filter(r => !r.ok).length;
+    confirmBtn.textContent = failed ? `Done (${failed} failed)` : 'Done ✓';
+    document.getElementById('modal-cancel').textContent = 'Close';
+  } catch (err) {
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = 'Retry';
+    setStatus(`Delete error: ${err.message}`);
+  }
+}
+
+// ── Event listeners ────────────────────────────────────────────────────────
+
+document.getElementById('scan-select').addEventListener('change', e => {
+  switchScan(parseInt(e.target.value, 10));
+});
+document.getElementById('refresh-btn').addEventListener('click', refresh);
+document.getElementById('review-btn').addEventListener('click', openModal);
+document.getElementById('modal-cancel').addEventListener('click', closeModal);
+document.getElementById('modal-confirm').addEventListener('click', confirmDelete);
+document.getElementById('modal-backdrop').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    state.tab = btn.dataset.tab;
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    renderGroups();
+  });
+});
+
+document.getElementById('sort-btn').addEventListener('click', () => {
+  state.sortBySize = !state.sortBySize;
+  document.getElementById('sort-btn').classList.toggle('active', state.sortBySize);
+  renderGroups();
+});
+
+// ── Init ───────────────────────────────────────────────────────────────────
+
+loadConfig().catch(err => setStatus(`Failed to load config: ${err.message}`));
+</script>
+</body>
+</html>
