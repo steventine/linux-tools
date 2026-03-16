@@ -385,6 +385,74 @@
       margin-right: 6px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Filter bar ── */
+    .filter-bar {
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+      padding: 8px 20px;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .filter-bar.hidden { display: none; }
+
+    .filter-preset-btn {
+      padding: 4px 12px;
+      border-radius: 50px;
+      border: 1.5px solid var(--accent);
+      background: transparent;
+      color: var(--accent);
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .15s, color .15s;
+    }
+    .filter-preset-btn:hover { background: var(--accent); color: #fff; }
+
+    .filter-action-btn {
+      padding: 4px 10px;
+      border-radius: 50px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .15s, color .15s;
+    }
+    .filter-action-btn:hover { background: #e2e8f0; color: var(--text); }
+
+    .filter-sep {
+      width: 1px;
+      height: 20px;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+
+    .ext-chip {
+      padding: 3px 10px;
+      border-radius: 50px;
+      border: 1px solid var(--border);
+      background: #e2e8f0;
+      color: #64748b;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      opacity: .45;
+      transition: opacity .15s, background .15s, color .15s;
+      white-space: nowrap;
+    }
+    .ext-chip.active { opacity: 1; background: var(--header-bg); color: #f1f5f9; border-color: var(--header-bg); }
+    .ext-chip:hover  { opacity: 1; }
+
+    .chip-count {
+      font-weight: 400;
+      opacity: .75;
+      font-size: 0.72rem;
+    }
   </style>
 </head>
 <body>
@@ -400,6 +468,15 @@
   <button class="tab active" data-tab="confirmed">Confirmed Duplicates (<span id="count-confirmed">0</span>)</button>
   <button class="tab" data-tab="nameOnly">Name Match Only (<span id="count-nameOnly">0</span>)</button>
   <button id="sort-btn" class="sort-btn">Sort by size</button>
+</div>
+
+<div id="filter-bar" class="filter-bar hidden">
+  <button class="filter-preset-btn" onclick="filterPicsVideos()">📷 Pictures &amp; Videos</button>
+  <div class="filter-sep"></div>
+  <button id="filter-all"   class="filter-action-btn" onclick="filterAll()">Select all</button>
+  <button id="filter-clear" class="filter-action-btn" onclick="filterClear()">Clear all</button>
+  <div class="filter-sep"></div>
+  <div id="filter-chips" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
 </div>
 
 <main id="groups-container"></main>
@@ -437,6 +514,7 @@ const state = {
   expandedPreviews: new Set(), // keys: "tab-groupIdx-fileIdx"
   deletedPaths: new Set(),
   sortBySize: false,
+  activeExts: null,  // null = show all; Set<string> = show only these extensions
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -571,6 +649,87 @@ function setStatus(msg) {
   document.getElementById('status-msg').textContent = msg;
 }
 
+// ── Filter ─────────────────────────────────────────────────────────────────
+
+// Returns a Map<ext, count> where count is groups in the current tab containing that ext.
+// Extensions from the other tab are included with count 0 so chips stay stable on tab switch.
+function extCounts() {
+  const counts = new Map();
+  const otherTab = state.tab === 'confirmed' ? 'nameOnly' : 'confirmed';
+  for (const group of (state.dups[otherTab] ?? [])) {
+    group.files.forEach(f => { const e = fileExt(f.path); if (e) counts.set(e, counts.get(e) ?? 0); });
+  }
+  for (const group of (state.dups[state.tab] ?? [])) {
+    const exts = new Set(group.files.map(f => fileExt(f.path)).filter(Boolean));
+    exts.forEach(e => counts.set(e, (counts.get(e) ?? 0) + 1));
+  }
+  return counts;
+}
+
+function groupMatchesFilter(group) {
+  if (!state.activeExts) return true;
+  if (state.activeExts.size === 0) return false;
+  return group.files.some(f => state.activeExts.has(fileExt(f.path)));
+}
+
+function renderFilterBar() {
+  const counts = extCounts();
+  const bar = document.getElementById('filter-bar');
+  if (counts.size <= 1) { bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+
+  const noFilter = state.activeExts === null;
+  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+
+  document.getElementById('filter-chips').innerHTML = sorted.map(([ext, count]) => {
+    const active = noFilter || state.activeExts.has(ext);
+    return `<button class="ext-chip${active ? ' active' : ''}" onclick="toggleExt('${esc(ext)}')">
+      .${esc(ext)}${count ? ` <span class="chip-count">${count}</span>` : ''}
+    </button>`;
+  }).join('');
+
+  document.getElementById('filter-all').style.fontWeight   = noFilter ? '700' : '';
+  document.getElementById('filter-clear').style.fontWeight = (state.activeExts?.size === 0) ? '700' : '';
+}
+
+function toggleExt(ext) {
+  if (state.activeExts === null) {
+    // Transition from "all" to explicit: deselect just this one
+    state.activeExts = new Set(extCounts().keys());
+    state.activeExts.delete(ext);
+  } else {
+    if (state.activeExts.has(ext)) {
+      state.activeExts.delete(ext);
+    } else {
+      state.activeExts.add(ext);
+      if (state.activeExts.size >= extCounts().size) state.activeExts = null; // back to "all"
+    }
+  }
+  renderFilterBar();
+  renderGroups();
+}
+
+function filterAll() {
+  state.activeExts = null;
+  renderFilterBar();
+  renderGroups();
+}
+
+function filterClear() {
+  state.activeExts = new Set();
+  renderFilterBar();
+  renderGroups();
+}
+
+function filterPicsVideos() {
+  const available = extCounts();
+  const target = new Set([...IMAGE_EXTS, ...VIDEO_EXTS]);
+  state.activeExts = new Set([...available.keys()].filter(e => target.has(e)));
+  if (state.activeExts.size === 0) state.activeExts = null;
+  renderFilterBar();
+  renderGroups();
+}
+
 // ── Rendering ──────────────────────────────────────────────────────────────
 
 function renderGroups() {
@@ -579,6 +738,8 @@ function renderGroups() {
 
   document.getElementById('count-confirmed').textContent = state.dups.confirmed.length;
   document.getElementById('count-nameOnly').textContent  = state.dups.nameOnly.length;
+
+  renderFilterBar();
 
   if (!groups || groups.length === 0) {
     container.innerHTML = `<div class="empty-state">
@@ -590,13 +751,24 @@ function renderGroups() {
     return;
   }
 
-  const order = groups.map((_, i) => i);
+  let order = groups.map((_, i) => i).filter(i => groupMatchesFilter(groups[i]));
   if (state.sortBySize) {
     order.sort((a, b) => {
       const maxSize = g => Math.max(...g.files.map(f => f.size ?? 0));
       return maxSize(groups[b]) - maxSize(groups[a]);
     });
   }
+
+  if (order.length === 0) {
+    container.innerHTML = `<div class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5">
+        <circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/>
+      </svg>
+      <p>No matches for the current filter.</p>
+    </div>`;
+    return;
+  }
+
   container.innerHTML = order.map(i => renderGroup(groups[i], state.tab, i)).join('');
 }
 
@@ -753,6 +925,7 @@ async function switchScan(index) {
   state.decisions   = { confirmed: {}, nameOnly: {} };
   state.deletedPaths = new Set();
   state.expandedPreviews = new Set();
+  state.activeExts = null;
   updateFab();
 
   const scan = state.scans[index];
@@ -792,6 +965,7 @@ async function refresh() {
     state.decisions = { confirmed: {}, nameOnly: {} };
     state.deletedPaths = new Set();
     state.expandedPreviews = new Set();
+    state.activeExts = null;
     updateFab();
 
     const dupRes = await fetch(`/api/dups/${state.currentScan}`);
