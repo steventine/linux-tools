@@ -19,6 +19,12 @@
         { "path": "/mnt/c/Users/steve/AwsBackup", "thumbnails": true },
         { "path": "/mnt/c/Users/steve/OneDrive",  "thumbnails": false }
       ]
+    },
+    {
+      "name": "Testdir",
+      "dirs": [
+        { "path": "./testdir", "thumbnails": true }
+      ]
     }
   ],
   "logFile": "deletions.log",

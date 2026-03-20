@@ -673,6 +673,7 @@ function setStatus(msg) {
 function calcPotentialSavings(tab) {
   let savings = 0;
   for (const group of (state.dups[tab] ?? [])) {
+    if (!groupMatchesFilter(group)) continue;
     const sizes = group.files.map(f => f.size ?? 0);
     savings += sizes.reduce((s, v) => s + v, 0) - Math.max(...sizes);
   }
