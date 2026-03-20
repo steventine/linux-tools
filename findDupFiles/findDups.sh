@@ -69,7 +69,8 @@ name_only_labels=()
 name_only_blocks=()
 name_only_json=()
 
-for key in $(echo "${!file_groups[@]}" | tr ' ' '\n' | sort); do
+mapfile -t sorted_keys < <(printf '%s\n' "${!file_groups[@]}" | sort)
+for key in "${sorted_keys[@]}"; do
     mapfile -t paths <<< "${file_groups[$key]}"
 
     # Skip filenames that only appear once — not a duplicate
