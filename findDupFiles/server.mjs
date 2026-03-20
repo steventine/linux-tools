@@ -74,14 +74,19 @@ app.post('/api/refresh/:index', async (req, res) => {
   const scan = config.scans[parseInt(req.params.index, 10)];
   if (!scan) return res.status(404).json({ error: 'Scan not found' });
   const script = join(__dirname, 'findDups.sh');
+  const dirs = normalizeDirs(scan).map(d => d.path);
+  console.log(`[refresh] Starting: "${scan.name}" — dirs: ${dirs.join(', ')}`);
   try {
-    const { stdout } = await execFileAsync('bash', [script, '--json', '--size', ...normalizeDirs(scan).map(d => d.path)], {
+    const { stdout } = await execFileAsync('bash', [script, '--json', '--size', ...dirs], {
       maxBuffer: 50 * 1024 * 1024,
     });
     const data = JSON.parse(stdout);
+    data.scannedAt = new Date().toISOString();
     writeFileSync(cacheFilePath(scan), JSON.stringify(data, null, 2));
+    console.log(`[refresh] Done: "${scan.name}" — ${data.confirmed.length} confirmed, ${data.nameOnly.length} name-only`);
     res.json({ ok: true, confirmed: data.confirmed.length, nameOnly: data.nameOnly.length });
   } catch (err) {
+    console.error(`[refresh] Failed: "${scan.name}" —`, err.message);
     res.status(500).json({ error: err.message });
   }
 });

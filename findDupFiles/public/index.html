@@ -386,6 +386,22 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* ── Scan summary bar ── */
+    .scan-summary {
+      padding: 5px 20px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      background: var(--bg);
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+      border-bottom: 1px solid var(--border);
+    }
+    .scan-summary.hidden { display: none; }
+    .scan-summary strong { color: var(--text); }
+    .summary-sep { color: var(--border); user-select: none; }
+
     /* ── Filter bar ── */
     .filter-bar {
       background: #f8fafc;
@@ -465,8 +481,8 @@
 </header>
 
 <div class="tabs">
-  <button class="tab active" data-tab="confirmed">Confirmed Duplicates (<span id="count-confirmed">0</span>)</button>
-  <button class="tab" data-tab="nameOnly">Name Match Only (<span id="count-nameOnly">0</span>)</button>
+  <button class="tab active" data-tab="confirmed">Confirmed Duplicates (<span id="count-confirmed">0</span><span id="savings-confirmed"></span>)</button>
+  <button class="tab" data-tab="nameOnly">Name Match Only (<span id="count-nameOnly">0</span><span id="savings-nameOnly"></span>)</button>
   <button id="sort-btn" class="sort-btn">Sort by size</button>
 </div>
 
@@ -478,6 +494,8 @@
   <div class="filter-sep"></div>
   <div id="filter-chips" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
 </div>
+
+<div id="scan-summary" class="scan-summary hidden"></div>
 
 <main id="groups-container"></main>
 
@@ -649,6 +667,50 @@ function setStatus(msg) {
   document.getElementById('status-msg').textContent = msg;
 }
 
+// ── Scan summary ───────────────────────────────────────────────────────────
+
+// Space saved if one copy of each duplicate group were kept (all tabs).
+function calcPotentialSavings(tab) {
+  let savings = 0;
+  for (const group of (state.dups[tab] ?? [])) {
+    const sizes = group.files.map(f => f.size ?? 0);
+    savings += sizes.reduce((s, v) => s + v, 0) - Math.max(...sizes);
+  }
+  return savings;
+}
+
+function renderScanSummary() {
+  const el = document.getElementById('scan-summary');
+  const total = (state.dups.confirmed?.length ?? 0) + (state.dups.nameOnly?.length ?? 0);
+  if (total === 0) {
+    el.classList.add('hidden');
+    document.getElementById('savings-confirmed').textContent = '';
+    document.getElementById('savings-nameOnly').textContent  = '';
+    return;
+  }
+
+  // Per-tab savings in the tab labels
+  const confirmedSavings = calcPotentialSavings('confirmed');
+  const nameOnlySavings  = calcPotentialSavings('nameOnly');
+  document.getElementById('savings-confirmed').textContent =
+    confirmedSavings > 0 ? ` · ${formatSize(confirmedSavings)}` : '';
+  document.getElementById('savings-nameOnly').textContent =
+    nameOnlySavings > 0 ? ` · ${formatSize(nameOnlySavings)}` : '';
+
+  // Summary bar shows scan time only
+  const scannedAt = state.dups.scannedAt;
+  const timeStr   = scannedAt
+    ? new Date(scannedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    : null;
+
+  if (timeStr) {
+    el.innerHTML = `<span>Last scanned: <strong>${esc(timeStr)}</strong></span>`;
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+  }
+}
+
 // ── Filter ─────────────────────────────────────────────────────────────────
 
 // Returns a Map<ext, count> where count is groups in the current tab containing that ext.
@@ -739,6 +801,7 @@ function renderGroups() {
   document.getElementById('count-confirmed').textContent = state.dups.confirmed.length;
   document.getElementById('count-nameOnly').textContent  = state.dups.nameOnly.length;
 
+  renderScanSummary();
   renderFilterBar();
 
   if (!groups || groups.length === 0) {
