@@ -1,0 +1,24 @@
+{
+  "port": 3001,
+  "scans": [
+    {
+      "name": "AwsBackup",
+      "dirs": [
+        "/mnt/c/Users/steve/AwsBackup"
+      ]
+    },
+    {
+      "name": "OneDrive",
+      "dirs": [
+        "/mnt/c/Users/steve/OneDrive"
+      ]
+    },
+    {
+      "name": "All Photos",
+      "dirs": [
+        "/mnt/c/Users/steve/AwsBackup",
+        "/mnt/c/Users/steve/OneDrive"
+      ]
+    }
+  ]
+}

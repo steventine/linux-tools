@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Photo Timeline</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #111;
+  --bg-header: rgba(16,16,16,0.96);
+  --bg-picker: #1e1e1e;
+  --bg-lb: rgba(0,0,0,0.92);
+  --text: #eee;
+  --text-dim: #888;
+  --text-muted: #555;
+  --accent: #4a9eff;
+  --gap: 2px;
+  --hh: 52px;
+  --row-h: 220px;
+  --radius: 6px;
+}
+
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+#header {
+  position: fixed; top: 0; left: 0; right: 0; height: var(--hh);
+  background: var(--bg-header);
+  backdrop-filter: blur(8px);
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 16px;
+  z-index: 100;
+  border-bottom: 1px solid #222;
+}
+.logo { font-size: 15px; font-weight: 600; white-space: nowrap; color: var(--text); letter-spacing: .3px; }
+.logo svg { vertical-align: middle; margin-right: 6px; }
+
+#scan-select {
+  background: #222; color: var(--text); border: 1px solid #333;
+  border-radius: 4px; padding: 4px 8px; font-size: 13px; cursor: pointer;
+}
+#scan-select:focus { outline: 2px solid var(--accent); }
+
+.spacer { flex: 1; }
+
+#date-chip {
+  font-size: 13px; color: var(--text); background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.12); border-radius: 20px;
+  padding: 3px 12px; white-space: nowrap;
+  transition: opacity .2s;
+}
+#date-chip.hidden { opacity: 0; pointer-events: none; }
+
+#status-text { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+
+.btn {
+  background: #2a2a2a; color: var(--text); border: 1px solid #3a3a3a;
+  border-radius: 4px; padding: 5px 12px; font-size: 13px; cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s;
+}
+.btn:hover { background: #333; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-primary:hover { background: #3a8ee8; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+/* ── Month picker dropdown ───────────────────────────────────────────────── */
+#month-picker {
+  position: fixed; top: var(--hh); right: 16px;
+  background: var(--bg-picker); border: 1px solid #333;
+  border-radius: var(--radius); padding: 12px 16px;
+  z-index: 99; max-height: calc(100vh - var(--hh) - 20px);
+  overflow-y: auto; min-width: 220px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+}
+#month-picker.hidden { display: none; }
+.picker-year { font-size: 12px; font-weight: 600; color: var(--text-dim); margin: 10px 0 4px; text-transform: uppercase; letter-spacing: .5px; }
+.picker-year:first-child { margin-top: 0; }
+.picker-months { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.picker-month {
+  padding: 5px 4px; font-size: 12px; text-align: center;
+  border-radius: 4px; cursor: pointer; color: var(--text-dim);
+  transition: background .12s, color .12s;
+}
+.picker-month:hover { background: #333; color: var(--text); }
+.picker-month.active { background: var(--accent); color: #fff; }
+.picker-month.has-photos { color: var(--text); }
+
+/* ── Main timeline ───────────────────────────────────────────────────────── */
+#main {
+  margin-top: var(--hh);
+  padding-bottom: 40px;
+}
+
+/* ── Empty / error states ───────────────────────────────────────────────── */
+#empty {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; min-height: calc(100vh - var(--hh));
+  gap: 12px; color: var(--text-dim); text-align: center; padding: 40px;
+}
+#empty h2 { font-size: 20px; color: var(--text); }
+#empty p { font-size: 14px; max-width: 380px; line-height: 1.6; }
+#empty.hidden { display: none; }
+
+/* ── Loading overlay ────────────────────────────────────────────────────── */
+#loading {
+  position: fixed; inset: 0; background: rgba(0,0,0,.75);
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; z-index: 200;
+}
+#loading.hidden { display: none; }
+.scan-progress { text-align: center; width: 340px; }
+.scan-progress .phase { font-size: 15px; color: var(--text); margin-bottom: 14px; }
+.progress-track {
+  background: #2a2a2a; border-radius: 4px; height: 6px;
+  overflow: hidden; margin-bottom: 10px;
+}
+.progress-fill {
+  height: 100%; border-radius: 4px; width: 0%;
+  background: var(--accent);
+  transition: width .3s ease;
+}
+.progress-fill.indeterminate {
+  width: 40% !important;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+}
+@keyframes shimmer { from { background-position: 200% 0 } to { background-position: -200% 0 } }
+.scan-progress .detail { font-size: 12px; color: var(--text-dim); min-height: 18px; }
+
+/* ── Month sections ─────────────────────────────────────────────────────── */
+.month-section { margin-bottom: 4px; }
+
+.month-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 18px 16px 8px;
+  font-size: 15px; font-weight: 600; color: var(--text);
+}
+.month-header-count { font-size: 13px; font-weight: 400; color: var(--text-dim); }
+
+/* ── Day labels ─────────────────────────────────────────────────────────── */
+.day-label {
+  padding: 6px 16px 4px;
+  font-size: 12px; color: var(--text-dim); letter-spacing: .3px;
+}
+
+/* ── Photo rows (justified layout) ─────────────────────────────────────── */
+.photo-row {
+  display: flex;
+  gap: var(--gap);
+  margin-bottom: var(--gap);
+  padding: 0 0;
+  overflow: hidden;
+}
+
+/* ── Photo tiles ────────────────────────────────────────────────────────── */
+.tile {
+  position: relative; flex-shrink: 0; overflow: hidden; cursor: pointer;
+  background: #1a1a1a;
+}
+.tile:hover .tile-overlay { opacity: 1; }
+.tile img {
+  width: 100%; height: 100%;
+  object-fit: cover; display: block;
+  transition: transform .2s;
+}
+.tile:hover img { transform: scale(1.03); }
+
+.tile-overlay {
+  position: absolute; inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,.65) 0%, transparent 50%);
+  opacity: 0; transition: opacity .2s;
+  display: flex; align-items: flex-end; padding: 8px;
+}
+.tile-date { font-size: 11px; color: #ddd; line-height: 1.2; }
+
+.tile-video-badge {
+  position: absolute; top: 6px; right: 6px;
+  background: rgba(0,0,0,.55); color: #fff;
+  font-size: 10px; padding: 2px 6px; border-radius: 3px;
+  pointer-events: none;
+}
+
+.tile-placeholder {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  color: #333; font-size: 28px;
+}
+
+/* ── Lightbox ───────────────────────────────────────────────────────────── */
+#lightbox {
+  position: fixed; inset: 0; z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+}
+#lightbox.hidden { display: none; }
+
+.lb-backdrop { position: absolute; inset: 0; background: var(--bg-lb); cursor: pointer; }
+
+.lb-close {
+  position: absolute; top: 12px; right: 16px; z-index: 10;
+  background: none; border: none; color: #ccc; font-size: 28px;
+  cursor: pointer; line-height: 1; padding: 4px 8px;
+  transition: color .15s;
+}
+.lb-close:hover { color: #fff; }
+
+.lb-arrow {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 10;
+  background: rgba(255,255,255,.08); border: none; color: #ccc;
+  font-size: 36px; cursor: pointer; padding: 12px 14px; border-radius: 4px;
+  transition: background .15s, color .15s; line-height: 1;
+}
+.lb-arrow:hover { background: rgba(255,255,255,.16); color: #fff; }
+.lb-arrow.hidden { display: none; }
+#lb-prev { left: 12px; }
+#lb-next { right: 12px; }
+
+.lb-wrap {
+  position: relative; z-index: 5;
+  display: flex; flex-direction: column; align-items: center;
+  max-width: 90vw; max-height: 90vh;
+}
+
+#lb-media {
+  max-width: 90vw; max-height: calc(90vh - 90px);
+  display: flex; align-items: center; justify-content: center;
+}
+#lb-media img, #lb-media video {
+  max-width: 100%; max-height: calc(90vh - 90px);
+  object-fit: contain; display: block; border-radius: 2px;
+}
+
+.lb-spinner {
+  width: 32px; height: 32px; border: 3px solid #333;
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+
+.lb-info {
+  margin-top: 12px; text-align: center;
+  max-width: 80vw; overflow: hidden;
+}
+.lb-filename { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 4px; }
+.lb-meta { font-size: 12px; color: var(--text-dim); }
+.lb-path {
+  font-size: 11px; color: var(--text-muted); margin-top: 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 70vw;
+}
+
+/* ── No-EXIF warning banner ─────────────────────────────────────────────── */
+.exif-warning {
+  background: #332a00; border-bottom: 1px solid #554400;
+  padding: 8px 16px; font-size: 12px; color: #ccaa44;
+}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <svg class="logo-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+    <circle cx="12" cy="13" r="4"/>
+  </svg>
+  <span class="logo">Photo Timeline</span>
+  <select id="scan-select"></select>
+  <div class="spacer"></div>
+  <div id="date-chip" class="hidden"></div>
+  <div class="spacer"></div>
+  <button id="month-btn" class="btn" onclick="togglePicker()">Jump to Month ▾</button>
+  <button id="refresh-btn" class="btn btn-primary" onclick="doRefresh()">↻ Scan</button>
+  <span id="status-text"></span>
+</div>
+
+<div id="month-picker" class="hidden"></div>
+
+<div id="main"></div>
+
+<div id="empty" class="hidden">
+  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#444" stroke-width="1.2">
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+    <circle cx="12" cy="13" r="4"/>
+  </svg>
+  <h2 id="empty-title">No photos scanned yet</h2>
+  <p id="empty-msg">Click <strong>↻ Scan</strong> to find all photos and videos in your configured directories.</p>
+</div>
+
+<div id="loading" class="hidden">
+  <div class="scan-progress">
+    <div class="phase" id="progress-phase">Starting scan…</div>
+    <div class="progress-track">
+      <div class="progress-fill indeterminate" id="progress-fill"></div>
+    </div>
+    <div class="detail" id="progress-detail"></div>
+  </div>
+</div>
+
+<!-- Lightbox -->
+<div id="lightbox" class="hidden">
+  <div class="lb-backdrop" onclick="closeLightbox()"></div>
+  <button class="lb-close" onclick="closeLightbox()">×</button>
+  <button class="lb-arrow hidden" id="lb-prev" onclick="navigateLightbox(-1)">‹</button>
+  <button class="lb-arrow hidden" id="lb-next" onclick="navigateLightbox(1)">›</button>
+  <div class="lb-wrap">
+    <div id="lb-media"></div>
+    <div class="lb-info">
+      <div class="lb-filename" id="lb-filename"></div>
+      <div class="lb-meta" id="lb-meta"></div>
+      <div class="lb-path" id="lb-path"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+const state = {
+  scans: [],
+  currentScan: 0,
+  photos: [],        // flat sorted array, newest first
+  groups: [],        // [{monthKey, monthLabel, count, days:[{dayKey,dayLabel,photos:[]}]}]
+  activeMonth: null,
+  pickerOpen: false,
+  lbIndex: -1,       // current photo index in lightbox
+  hasExif: false,
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+function fmtSize(b) {
+  if (!b) return '';
+  if (b < 1024) return b + ' B';
+  if (b < 1024**2) return (b/1024).toFixed(1) + ' KB';
+  if (b < 1024**3) return (b/1024**2).toFixed(1) + ' MB';
+  return (b/1024**3).toFixed(1) + ' GB';
+}
+
+const MONTHS = ['January','February','March','April','May','June',
+                'July','August','September','October','November','December'];
+
+function fmtMonthKey(key) {
+  const [y, m] = key.split('-');
+  return `${MONTHS[parseInt(m)-1]} ${y}`;
+}
+
+function fmtDayKey(key) {
+  const [y, m, d] = key.split('-');
+  return `${MONTHS[parseInt(m)-1]} ${parseInt(d)}, ${y}`;
+}
+
+function fmtDatetime(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const mo = MONTHS[d.getMonth()];
+  const day = d.getDate();
+  const yr = d.getFullYear();
+  const h = d.getHours().toString().padStart(2,'0');
+  const min = d.getMinutes().toString().padStart(2,'0');
+  return `${mo} ${day}, ${yr} · ${h}:${min}`;
+}
+
+function photoFilename(p) {
+  return p.path.split('/').pop();
+}
+
+function photoExt(p) {
+  return (p.path.split('.').pop() || '').toUpperCase();
+}
+
+function thumbUrl(filePath) {
+  return `/api/thumbnail?path=${encodeURIComponent(filePath)}`;
+}
+function previewUrl(filePath) {
+  return `/api/preview?path=${encodeURIComponent(filePath)}`;
+}
+
+// ── Grouping ──────────────────────────────────────────────────────────────────
+function groupPhotos(photos) {
+  const monthMap = new Map(); // monthKey → Map(dayKey → [photo])
+  for (const photo of photos) {
+    const d = new Date(photo.date);
+    const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const dk = `${mk}-${String(d.getDate()).padStart(2,'0')}`;
+    if (!monthMap.has(mk)) monthMap.set(mk, new Map());
+    const dm = monthMap.get(mk);
+    if (!dm.has(dk)) dm.set(dk, []);
+    dm.get(dk).push(photo);
+  }
+  const groups = [];
+  for (const [mk, dm] of monthMap) {
+    const days = [];
+    for (const [dk, photos] of dm) days.push({ dayKey: dk, dayLabel: fmtDayKey(dk), photos });
+    days.sort((a, b) => b.dayKey.localeCompare(a.dayKey));
+    const count = days.reduce((s, d) => s + d.photos.length, 0);
+    groups.push({ monthKey: mk, monthLabel: fmtMonthKey(mk), count, days });
+  }
+  groups.sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+  return groups;
+}
+
+// ── Justified layout ──────────────────────────────────────────────────────────
+const TARGET_ROW_H = 220; // px
+const GAP = 2;
+
+function computeRows(photos, containerW) {
+  const rows = [];
+  let row = [], rowAspectSum = 0;
+
+  for (const photo of photos) {
+    const aspect = (photo.w && photo.h) ? photo.w / photo.h
+      : photo.type === 'video' ? 16/9 : 4/3;
+    rowAspectSum += aspect;
+    row.push({ photo, aspect });
+
+    const naturalW = rowAspectSum * TARGET_ROW_H + GAP * (row.length - 1);
+    if (naturalW >= containerW) {
+      const available = containerW - GAP * (row.length - 1);
+      const scale = available / (rowAspectSum * TARGET_ROW_H);
+      const rh = Math.round(TARGET_ROW_H * scale);
+      rows.push(row.map(({ photo, aspect }) => ({
+        photo, width: Math.round(aspect * rh), height: rh,
+      })));
+      row = []; rowAspectSum = 0;
+    }
+  }
+  // Incomplete last row — don't stretch, just use natural height
+  if (row.length) {
+    rows.push(row.map(({ photo, aspect }) => ({
+      photo, width: Math.round(aspect * TARGET_ROW_H), height: TARGET_ROW_H,
+    })));
+  }
+  return rows;
+}
+
+// ── Lazy loading ──────────────────────────────────────────────────────────────
+let observer = null;
+
+function setupLazyLoad() {
+  if (observer) observer.disconnect();
+  observer = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const el = entry.target;
+      if (el.dataset.src) {
+        el.src = el.dataset.src;
+        delete el.dataset.src;
+        observer.unobserve(el);
+      }
+    }
+  }, { rootMargin: '400px' });
+}
+
+function observe(img) { observer?.observe(img); }
+
+// ── Render ─────────────────────────────────────────────────────────────────────
+function render() {
+  const main = document.getElementById('main');
+  const empty = document.getElementById('empty');
+  main.innerHTML = '';
+
+  if (!state.photos.length) {
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  // EXIF warning
+  if (!state.hasExif) {
+    const w = document.createElement('div');
+    w.className = 'exif-warning';
+    w.textContent = '⚠ exiftool not installed — dates shown are file modification times, not actual photo dates. See README for install instructions.';
+    main.appendChild(w);
+  }
+
+  setupLazyLoad();
+  const containerW = main.clientWidth || window.innerWidth;
+
+  for (const group of state.groups) {
+    const sec = document.createElement('div');
+    sec.className = 'month-section';
+    sec.id = `month-${group.monthKey}`;
+    sec.dataset.monthKey = group.monthKey;
+
+    const hdr = document.createElement('div');
+    hdr.className = 'month-header';
+    hdr.innerHTML = `${esc(group.monthLabel)} <span class="month-header-count">${group.count.toLocaleString()} photos</span>`;
+    sec.appendChild(hdr);
+
+    for (const day of group.days) {
+      const dl = document.createElement('div');
+      dl.className = 'day-label';
+      dl.textContent = day.dayLabel;
+      sec.appendChild(dl);
+
+      const rows = computeRows(day.photos, containerW);
+      for (const row of rows) {
+        const rowEl = document.createElement('div');
+        rowEl.className = 'photo-row';
+        for (const { photo, width, height } of row) {
+          rowEl.appendChild(makeTile(photo, width, height));
+        }
+        sec.appendChild(rowEl);
+      }
+    }
+    main.appendChild(sec);
+  }
+
+  updateScrollTracking();
+}
+
+function makeTile(photo, width, height) {
+  const tile = document.createElement('div');
+  tile.className = 'tile';
+  tile.style.width = width + 'px';
+  tile.style.height = height + 'px';
+  tile.title = photoFilename(photo);
+
+  const d = new Date(photo.date);
+  const dateStr = isNaN(d) ? '' : `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+
+  const isVideo = photo.type === 'video';
+
+  const img = document.createElement('img');
+  img.alt = '';
+  img.dataset.src = thumbUrl(photo.path);
+  img.onerror = function() {
+    this.style.display = 'none';
+    const ph = tile.querySelector('.tile-placeholder') || (() => {
+      const el = document.createElement('div');
+      el.className = 'tile-placeholder';
+      el.textContent = isVideo ? '▶' : '📷';
+      tile.prepend(el);
+      return el;
+    })();
+    ph.style.display = 'flex';
+  };
+  observe(img);
+  tile.appendChild(img);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'tile-overlay';
+  overlay.innerHTML = `<span class="tile-date">${esc(dateStr)}</span>`;
+  tile.appendChild(overlay);
+
+  if (isVideo) {
+    const badge = document.createElement('div');
+    badge.className = 'tile-video-badge';
+    badge.textContent = '▶';
+    tile.appendChild(badge);
+  }
+
+  const photoIndex = state.photos.indexOf(photo);
+  tile.addEventListener('click', () => openLightbox(photoIndex));
+
+  return tile;
+}
+
+// ── Scroll tracking ───────────────────────────────────────────────────────────
+let rafPending = false;
+
+function updateScrollTracking() {
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll(); // initial
+}
+
+function onScroll() {
+  if (rafPending) return;
+  rafPending = true;
+  requestAnimationFrame(() => {
+    rafPending = false;
+    const sections = document.querySelectorAll('.month-section');
+    const threshold = 52 + 20;
+    let active = null;
+    for (const s of sections) {
+      if (s.getBoundingClientRect().top <= threshold) active = s.dataset.monthKey;
+      else break;
+    }
+    if (active && active !== state.activeMonth) {
+      state.activeMonth = active;
+      updateDateChip();
+      updatePickerActive();
+    }
+  });
+}
+
+function updateDateChip() {
+  const chip = document.getElementById('date-chip');
+  if (!state.activeMonth) { chip.classList.add('hidden'); return; }
+  chip.textContent = fmtMonthKey(state.activeMonth);
+  chip.classList.remove('hidden');
+}
+
+// ── Month picker ──────────────────────────────────────────────────────────────
+function buildPicker() {
+  const el = document.getElementById('month-picker');
+  if (!state.groups.length) { el.innerHTML = '<div style="color:var(--text-dim);font-size:13px">No photos loaded</div>'; return; }
+
+  // Group by year
+  const byYear = new Map();
+  for (const g of state.groups) {
+    const yr = g.monthKey.split('-')[0];
+    if (!byYear.has(yr)) byYear.set(yr, []);
+    byYear.get(yr).push(g);
+  }
+
+  // All months with photos as a set
+  const withPhotos = new Set(state.groups.map(g => g.monthKey));
+
+  let html = '';
+  for (const [yr, gs] of byYear) {
+    html += `<div class="picker-year">${esc(yr)}</div><div class="picker-months">`;
+    const monthsInYear = new Map(gs.map(g => [g.monthKey, g]));
+    for (let m = 1; m <= 12; m++) {
+      const mk = `${yr}-${String(m).padStart(2,'0')}`;
+      const has = withPhotos.has(mk);
+      const isActive = mk === state.activeMonth;
+      if (has) {
+        html += `<div class="picker-month ${isActive ? 'active' : 'has-photos'}" data-key="${esc(mk)}"
+          onclick="jumpToMonth('${esc(mk)}')">${MONTHS[m-1].slice(0,3)}</div>`;
+      } else {
+        html += `<div class="picker-month" style="color:var(--text-muted)">${MONTHS[m-1].slice(0,3)}</div>`;
+      }
+    }
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function updatePickerActive() {
+  document.querySelectorAll('.picker-month').forEach(el => {
+    el.classList.toggle('active', el.dataset.key === state.activeMonth);
+    if (el.dataset.key && !el.classList.contains('active')) {
+      el.classList.add('has-photos');
+    }
+  });
+}
+
+function togglePicker() {
+  state.pickerOpen = !state.pickerOpen;
+  const el = document.getElementById('month-picker');
+  if (state.pickerOpen) {
+    buildPicker();
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+  }
+}
+
+function jumpToMonth(key) {
+  const sec = document.getElementById(`month-${key}`);
+  if (sec) {
+    const top = sec.getBoundingClientRect().top + window.scrollY - 52 - 8;
+    window.scrollTo({ top, behavior: 'instant' });
+  }
+  // Close picker after a moment
+  setTimeout(() => {
+    state.pickerOpen = false;
+    document.getElementById('month-picker').classList.add('hidden');
+  }, 300);
+}
+
+// Close picker when clicking outside
+document.addEventListener('click', e => {
+  if (!state.pickerOpen) return;
+  const picker = document.getElementById('month-picker');
+  const btn = document.getElementById('month-btn');
+  if (!picker.contains(e.target) && e.target !== btn) {
+    state.pickerOpen = false;
+    picker.classList.add('hidden');
+  }
+});
+
+// ── Lightbox ──────────────────────────────────────────────────────────────────
+function openLightbox(index) {
+  state.lbIndex = index;
+  renderLightbox();
+  document.getElementById('lightbox').classList.remove('hidden');
+}
+
+function closeLightbox() {
+  document.getElementById('lightbox').classList.add('hidden');
+  state.lbIndex = -1;
+  document.getElementById('lb-media').innerHTML = '';
+}
+
+function navigateLightbox(delta) {
+  const next = state.lbIndex + delta;
+  if (next < 0 || next >= state.photos.length) return;
+  state.lbIndex = next;
+  renderLightbox();
+}
+
+function renderLightbox() {
+  const photo = state.photos[state.lbIndex];
+  if (!photo) return;
+
+  const isVideo = photo.type === 'video';
+  const mediaEl = document.getElementById('lb-media');
+
+  // Show spinner while loading
+  mediaEl.innerHTML = '<div class="lb-spinner"></div>';
+
+  if (isVideo) {
+    const vid = document.createElement('video');
+    vid.controls = true;
+    vid.preload = 'metadata';
+    vid.src = previewUrl(photo.path);
+    vid.oncanplay = () => mediaEl.innerHTML = '', mediaEl.appendChild(vid);
+    mediaEl.innerHTML = '';
+    mediaEl.appendChild(vid);
+  } else {
+    const img = new Image();
+    img.src = previewUrl(photo.path);
+    img.onload = () => { mediaEl.innerHTML = ''; mediaEl.appendChild(img); };
+    img.onerror = () => { mediaEl.innerHTML = '<div style="color:var(--text-dim);padding:20px">Failed to load image</div>'; };
+  }
+
+  // Info
+  document.getElementById('lb-filename').textContent = photoFilename(photo);
+  document.getElementById('lb-meta').textContent =
+    [fmtDatetime(photo.date), fmtSize(photo.size), photoExt(photo)].filter(Boolean).join(' · ');
+  document.getElementById('lb-path').textContent = photo.path;
+
+  // Arrows
+  document.getElementById('lb-prev').classList.toggle('hidden', state.lbIndex === 0);
+  document.getElementById('lb-next').classList.toggle('hidden', state.lbIndex === state.photos.length - 1);
+}
+
+// Keyboard navigation — also block scroll keys so the background doesn't move
+document.addEventListener('keydown', e => {
+  if (document.getElementById('lightbox').classList.contains('hidden')) return;
+  if (e.key === 'Escape') { closeLightbox(); return; }
+  if (e.key === 'ArrowLeft')  navigateLightbox(-1);
+  if (e.key === 'ArrowRight') navigateLightbox(1);
+  if ([' ','ArrowUp','ArrowDown','PageUp','PageDown'].includes(e.key)) e.preventDefault();
+});
+
+// Block wheel scroll from reaching the background while lightbox is open
+document.getElementById('lightbox').addEventListener('wheel', e => e.preventDefault(), { passive: false });
+
+// ── API calls ─────────────────────────────────────────────────────────────────
+async function loadConfig() {
+  const res = await fetch('/api/config');
+  const { scans } = await res.json();
+  state.scans = scans;
+  renderScanSelect();
+}
+
+function renderScanSelect() {
+  const sel = document.getElementById('scan-select');
+  sel.innerHTML = state.scans.map((s, i) =>
+    `<option value="${i}">${esc(s.name)}</option>`
+  ).join('');
+  sel.value = state.currentScan;
+  updateStatus();
+}
+
+function updateStatus() {
+  const scan = state.scans[state.currentScan];
+  if (!scan) return;
+  const c = scan.cache;
+  const el = document.getElementById('status-text');
+  if (c?.exists) {
+    const d = new Date(c.scannedAt);
+    const ago = fmtAgo(d);
+    el.textContent = `${(c.totalCount||0).toLocaleString()} photos · scanned ${ago}`;
+  } else {
+    el.textContent = 'Not yet scanned';
+  }
+}
+
+function fmtAgo(d) {
+  const s = Math.round((Date.now() - d) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.round(s/60)}m ago`;
+  if (s < 86400) return `${Math.round(s/3600)}h ago`;
+  return `${Math.round(s/86400)}d ago`;
+}
+
+async function loadPhotos(index) {
+  const res = await fetch(`/api/photos/${index}`);
+  if (!res.ok) {
+    const { error } = await res.json().catch(() => ({ error: 'Unknown error' }));
+    showEmpty('No photos loaded', error || 'Click ↻ Scan to scan your directories.');
+    return;
+  }
+  const data = await res.json();
+  state.photos = data.photos || [];
+  state.hasExif = !!data.hasExif;
+  state.groups = groupPhotos(state.photos);
+  state.activeMonth = state.groups[0]?.monthKey ?? null;
+  render();
+  updateDateChip();
+}
+
+function showEmpty(title, msg) {
+  document.getElementById('main').innerHTML = '';
+  document.getElementById('empty-title').textContent = title;
+  document.getElementById('empty-msg').innerHTML = msg;
+  document.getElementById('empty').classList.remove('hidden');
+}
+
+function setProgress({ phase, pct, current, total }) {
+  const fillEl  = document.getElementById('progress-fill');
+  const phaseEl = document.getElementById('progress-phase');
+  const detailEl = document.getElementById('progress-detail');
+
+  if (phase === 'starting') {
+    phaseEl.textContent = 'Starting scan…';
+    fillEl.className = 'progress-fill indeterminate';
+    detailEl.textContent = '';
+  } else if (phase === 'scanning') {
+    phaseEl.textContent = 'Reading photo metadata…';
+    fillEl.className = 'progress-fill';
+    fillEl.style.width = pct + '%';
+    detailEl.textContent = total
+      ? `${current.toLocaleString()} of ${total.toLocaleString()} files (${pct.toFixed(1)}%)`
+      : '';
+  } else if (phase === 'processing') {
+    phaseEl.textContent = 'Processing metadata…';
+    fillEl.className = 'progress-fill indeterminate';
+    detailEl.textContent = '';
+  }
+}
+
+async function doRefresh() {
+  const i = state.currentScan;
+
+  // Subscribe to progress events before firing the scan POST
+  const es = new EventSource(`/api/scan-progress?index=${i}`);
+  es.onmessage = e => {
+    const data = JSON.parse(e.data);
+    if (data.phase !== 'done') setProgress(data);
+  };
+
+  setProgress({ phase: 'starting' });
+  document.getElementById('loading').classList.remove('hidden');
+  document.getElementById('refresh-btn').disabled = true;
+
+  try {
+    const res = await fetch(`/api/refresh/${i}`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Scan failed');
+    state.scans[i].cache = { exists: true, scannedAt: data.scannedAt, totalCount: data.totalCount, hasExif: data.hasExif };
+    updateStatus();
+    await loadPhotos(i);
+  } catch (e) {
+    alert('Scan failed: ' + e.message);
+  } finally {
+    es.close();
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('refresh-btn').disabled = false;
+  }
+}
+
+// ── Re-layout on resize ───────────────────────────────────────────────────────
+let resizeTimer = null;
+new ResizeObserver(() => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (state.photos.length) render();
+  }, 200);
+}).observe(document.getElementById('main'));
+
+// ── Scan selector ─────────────────────────────────────────────────────────────
+document.getElementById('scan-select').addEventListener('change', async e => {
+  state.currentScan = parseInt(e.target.value);
+  state.activeMonth = null;
+  updateStatus();
+  document.getElementById('empty').classList.add('hidden');
+  document.getElementById('main').innerHTML = '';
+  await loadPhotos(state.currentScan);
+});
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+(async () => {
+  await loadConfig();
+  if (state.scans[0]?.cache?.exists) {
+    await loadPhotos(0);
+  } else {
+    showEmpty('No photos scanned yet',
+      'Click <strong>↻ Scan</strong> to find all photos and videos in your configured directories.');
+  }
+})();
+</script>
+</body>
+</html>
