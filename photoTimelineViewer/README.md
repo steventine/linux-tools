@@ -2,6 +2,17 @@
 
 A local photo browser with an OneDrive-style justified gallery layout. Photos and videos are displayed newest-first in dense justified rows, grouped by day and month, with a jump-to-month picker.
 
+## Features
+
+- **Timeline view** — justified photo grid with variable-width tiles filling each row at a fixed height; photos grouped by day and month, newest first; dates from EXIF `DateTimeOriginal` with fallback to file mtime
+- **Albums view** — folder-based card grid showing cover photo (most recent file), photo count, and date range; breadcrumb navigation for nested folders; leaf folders switch to a filtered timeline
+- **Timeline scrubber** — draggable right-edge navigator with year markers spaced by actual photo density; lazy loading pauses during drag and resumes automatically after 600ms of stillness or 400ms on release
+- **Month picker** — dropdown listing every month that has photos; instant jump (no smooth scroll) to avoid thumbnail floods
+- **Scan progress** — live progress bar via Server-Sent Events during exiftool scans, showing percentage and current file
+- **Lightbox** — full-size photo/video viewer with keyboard navigation (arrow keys, Esc) and no overflow flash on open/close
+- **Thumbnail cache** — sharp-generated JPEG thumbnails (max 800px, aspect-preserved, EXIF auto-rotated) cached in `.thumbnails/`; video thumbnails via ffmpeg
+- **Multiple scan profiles** — `config.json` lets you define named scans across one or more directories; port auto-increments if busy
+
 ## Prerequisites
 
 ### Required: exiftool (highly recommended)
