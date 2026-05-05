@@ -92,6 +92,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 #main {
   margin-top: var(--hh);
   padding-bottom: 40px;
+  padding-right: 54px;
 }
 
 /* ── Empty / error states ───────────────────────────────────────────────── */
@@ -251,6 +252,36 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   max-width: 70vw;
 }
 
+/* ── Timeline scrubber ───────────────────────────────────────────────────── */
+#timeline-scrubber {
+  position: fixed; right: 0; top: var(--hh); bottom: 0;
+  width: 54px; z-index: 80; cursor: ns-resize;
+}
+#timeline-scrubber.hidden { display: none; }
+#scrubber-track {
+  position: absolute; right: 7px; top: 8px; bottom: 8px;
+  width: 1px; background: #2e2e2e; border-radius: 1px;
+  pointer-events: none;
+}
+.scrubber-year {
+  position: absolute; right: 14px;
+  font-size: 11px; color: #555; line-height: 1;
+  transform: translateY(-50%);
+  white-space: nowrap; cursor: pointer;
+  transition: color .12s;
+  user-select: none;
+}
+.scrubber-year:hover { color: #999; }
+.scrubber-year.active { color: #bbb; }
+#scrubber-handle {
+  position: absolute; right: 0; left: 0; height: 2px;
+  background: #e8533a;
+  transform: translateY(-50%);
+  pointer-events: none;
+  transition: top .05s linear;
+}
+#timeline-scrubber.dragging #scrubber-handle { transition: none; }
+
 /* ── No-EXIF warning banner ─────────────────────────────────────────────── */
 .exif-warning {
   background: #332a00; border-bottom: 1px solid #554400;
@@ -356,6 +387,12 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     </div>
     <div class="detail" id="progress-detail"></div>
   </div>
+</div>
+
+<!-- Timeline scrubber -->
+<div id="timeline-scrubber" class="hidden">
+  <div id="scrubber-track"></div>
+  <div id="scrubber-handle"></div>
 </div>
 
 <!-- Lightbox -->
@@ -586,6 +623,8 @@ function render() {
   }
 
   updateScrollTracking();
+  // Build scrubber after layout settles so offsetTop values are accurate
+  requestAnimationFrame(buildScrubber);
 }
 
 function makeTile(photo, width, height) {
@@ -659,7 +698,9 @@ function onScroll() {
       state.activeMonth = active;
       updateDateChip();
       updatePickerActive();
+      updateScrubberActive();
     }
+    updateScrubberHandle();
   });
 }
 
@@ -932,6 +973,131 @@ async function doRefresh() {
   }
 }
 
+// ── Timeline scrubber ─────────────────────────────────────────────────────────
+
+const SCRUBBER_PAD = 8; // px padding top/bottom inside the scrubber rail
+
+function scrubberRailHeight() {
+  const el = document.getElementById('timeline-scrubber');
+  return el.offsetHeight - SCRUBBER_PAD * 2;
+}
+
+function scrollFraction() {
+  const maxScroll = document.body.scrollHeight - window.innerHeight;
+  return maxScroll > 0 ? Math.min(1, window.scrollY / maxScroll) : 0;
+}
+
+function buildScrubber() {
+  const scrubber = document.getElementById('timeline-scrubber');
+  // Remove old year labels
+  scrubber.querySelectorAll('.scrubber-year').forEach(el => el.remove());
+
+  if (state.view !== 'timeline' || !state.groups.length) {
+    scrubber.classList.add('hidden');
+    return;
+  }
+  scrubber.classList.remove('hidden');
+
+  const maxScroll = Math.max(1, document.body.scrollHeight - window.innerHeight);
+  const railH = scrubberRailHeight();
+
+  // Unique years in display order (newest first)
+  const years = [...new Set(state.groups.map(g => g.monthKey.split('-')[0]))];
+
+  for (const year of years) {
+    const firstGroup = state.groups.find(g => g.monthKey.startsWith(year + '-'));
+    if (!firstGroup) continue;
+    const sec = document.getElementById(`month-${firstGroup.monthKey}`);
+    if (!sec) continue;
+
+    // Position = where this year's content begins in the scrollable range
+    const scrollPos = Math.max(0, sec.offsetTop - 52); // 52 = header height
+    const frac = Math.min(1, scrollPos / maxScroll);
+    const topPx = SCRUBBER_PAD + frac * railH;
+
+    const label = document.createElement('div');
+    label.className = 'scrubber-year';
+    label.textContent = year;
+    label.dataset.year = year;
+    label.style.top = topPx + 'px';
+    label.addEventListener('click', e => {
+      e.stopPropagation();
+      window.scrollTo({ top: scrollPos, behavior: 'instant' });
+    });
+    scrubber.appendChild(label);
+  }
+
+  updateScrubberHandle();
+  updateScrubberActive();
+}
+
+function updateScrubberHandle() {
+  const handle = document.getElementById('scrubber-handle');
+  if (!handle) return;
+  const topPx = SCRUBBER_PAD + scrollFraction() * scrubberRailHeight();
+  handle.style.top = topPx + 'px';
+}
+
+function updateScrubberActive() {
+  const activeYear = state.activeMonth?.split('-')[0];
+  document.querySelectorAll('.scrubber-year').forEach(el => {
+    el.classList.toggle('active', el.dataset.year === activeYear);
+  });
+}
+
+function setupScrubberDrag() {
+  const scrubber = document.getElementById('timeline-scrubber');
+  let dragging = false;
+  let startClientY = 0;
+  let startScrollY = 0;
+
+  function posToScroll(clientY) {
+    const rect = scrubber.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (clientY - rect.top - SCRUBBER_PAD) / scrubberRailHeight()));
+    return frac * (document.body.scrollHeight - window.innerHeight);
+  }
+
+  scrubber.addEventListener('mousedown', e => {
+    dragging = true;
+    startClientY = e.clientY;
+    startScrollY = window.scrollY;
+    scrubber.classList.add('dragging');
+    // Jump handle immediately on click
+    window.scrollTo(0, posToScroll(e.clientY));
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    window.scrollTo(0, posToScroll(e.clientY));
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    document.getElementById('timeline-scrubber').classList.remove('dragging');
+  });
+
+  // Touch support
+  scrubber.addEventListener('touchstart', e => {
+    dragging = true;
+    scrubber.classList.add('dragging');
+    window.scrollTo(0, posToScroll(e.touches[0].clientY));
+    e.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener('touchmove', e => {
+    if (!dragging) return;
+    window.scrollTo(0, posToScroll(e.touches[0].clientY));
+    e.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener('touchend', () => {
+    dragging = false;
+    document.getElementById('timeline-scrubber').classList.remove('dragging');
+  });
+}
+
 // ── Albums ─────────────────────────────────────────────────────────────────────
 async function loadAlbums(dir) {
   const i = state.currentScan;
@@ -1060,6 +1226,10 @@ function updateViewControls() {
     state.pickerOpen = false;
     document.getElementById('month-picker').classList.add('hidden');
   }
+  // Scrubber only makes sense in timeline mode
+  if (state.view !== 'timeline') {
+    document.getElementById('timeline-scrubber').classList.add('hidden');
+  }
 }
 
 // ── Re-layout on resize ───────────────────────────────────────────────────────
@@ -1090,6 +1260,7 @@ document.getElementById('scan-select').addEventListener('change', async e => {
 
 // ── Init ───────────────────────────────────────────────────────────────────────
 (async () => {
+  setupScrubberDrag();
   await loadConfig();
   if (state.scans[0]?.cache?.exists) {
     await loadPhotos(0);
