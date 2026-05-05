@@ -557,6 +557,15 @@ function setupLazyLoad() {
 
 function observe(img) { observer?.observe(img); }
 
+function pauseLazyLoad() {
+  observer?.disconnect();
+}
+
+function resumeLazyLoad() {
+  setupLazyLoad();
+  document.querySelectorAll('img[data-src]').forEach(img => observer.observe(img));
+}
+
 // ── Render ─────────────────────────────────────────────────────────────────────
 function render() {
   const main = document.getElementById('main');
@@ -1062,7 +1071,7 @@ function setupScrubberDrag() {
     startClientY = e.clientY;
     startScrollY = window.scrollY;
     scrubber.classList.add('dragging');
-    // Jump handle immediately on click
+    pauseLazyLoad();
     window.scrollTo(0, posToScroll(e.clientY));
     e.preventDefault();
   });
@@ -1076,12 +1085,14 @@ function setupScrubberDrag() {
     if (!dragging) return;
     dragging = false;
     document.getElementById('timeline-scrubber').classList.remove('dragging');
+    resumeLazyLoad();
   });
 
   // Touch support
   scrubber.addEventListener('touchstart', e => {
     dragging = true;
     scrubber.classList.add('dragging');
+    pauseLazyLoad();
     window.scrollTo(0, posToScroll(e.touches[0].clientY));
     e.preventDefault();
   }, { passive: false });
@@ -1095,6 +1106,7 @@ function setupScrubberDrag() {
   document.addEventListener('touchend', () => {
     dragging = false;
     document.getElementById('timeline-scrubber').classList.remove('dragging');
+    resumeLazyLoad();
   });
 }
 
