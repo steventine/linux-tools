@@ -256,6 +256,61 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   background: #332a00; border-bottom: 1px solid #554400;
   padding: 8px 16px; font-size: 12px; color: #ccaa44;
 }
+
+/* ── View toggle ─────────────────────────────────────────────────────────── */
+.view-toggle {
+  display: flex; background: #1e1e1e;
+  border: 1px solid #333; border-radius: 4px; overflow: hidden;
+}
+.vtbtn {
+  background: none; border: none; color: var(--text-dim);
+  padding: 4px 14px; font-size: 13px; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.vtbtn:hover { background: #2a2a2a; color: var(--text); }
+.vtbtn.active { background: #2e2e2e; color: var(--text); }
+
+/* ── Breadcrumb ──────────────────────────────────────────────────────────── */
+#breadcrumb {
+  position: sticky; top: var(--hh); z-index: 90;
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 16px; font-size: 13px;
+  background: var(--bg-header); border-bottom: 1px solid #1e1e1e;
+}
+#breadcrumb.hidden { display: none; }
+.crumb { color: var(--accent); cursor: pointer; }
+.crumb:hover { text-decoration: underline; }
+.crumb.current { color: var(--text); cursor: default; }
+.crumb-sep { color: var(--text-muted); font-size: 11px; }
+
+/* ── Album grid ──────────────────────────────────────────────────────────── */
+.albums-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px; padding: 16px;
+}
+.album-card {
+  position: relative; border-radius: 8px; overflow: hidden;
+  aspect-ratio: 3 / 2; background: #1e1e1e; cursor: pointer;
+  transition: transform .15s, box-shadow .15s;
+}
+.album-card:hover { transform: scale(1.025); box-shadow: 0 6px 24px rgba(0,0,0,.55); }
+.album-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.album-no-cover {
+  width: 100%; height: 100%; display: flex;
+  align-items: center; justify-content: center;
+  font-size: 2.5rem; color: #333;
+}
+.album-info {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: linear-gradient(to top, rgba(0,0,0,.82) 0%, rgba(0,0,0,.15) 65%, transparent 100%);
+  padding: 32px 12px 11px;
+}
+.album-title {
+  font-size: 14px; font-weight: 600; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.album-subtitle { font-size: 11px; color: rgba(255,255,255,.6); margin-top: 3px; }
 </style>
 </head>
 <body>
@@ -267,6 +322,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   </svg>
   <span class="logo">Photo Timeline</span>
   <select id="scan-select"></select>
+  <div class="view-toggle">
+    <button id="view-timeline" class="vtbtn active" onclick="switchView('timeline')">Timeline</button>
+    <button id="view-albums"   class="vtbtn"        onclick="switchView('albums')">Albums</button>
+  </div>
   <div class="spacer"></div>
   <div id="date-chip" class="hidden"></div>
   <div class="spacer"></div>
@@ -276,6 +335,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 </div>
 
 <div id="month-picker" class="hidden"></div>
+<div id="breadcrumb" class="hidden"></div>
 
 <div id="main"></div>
 
@@ -321,12 +381,15 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 const state = {
   scans: [],
   currentScan: 0,
-  photos: [],        // flat sorted array, newest first
-  groups: [],        // [{monthKey, monthLabel, count, days:[{dayKey,dayLabel,photos:[]}]}]
+  photos: [],            // flat sorted array, newest first
+  groups: [],            // [{monthKey, monthLabel, count, days:[...]}]
   activeMonth: null,
   pickerOpen: false,
-  lbIndex: -1,       // current photo index in lightbox
+  lbIndex: -1,
   hasExif: false,
+  view: 'timeline',      // 'timeline' | 'albums'
+  filterDir: null,       // when set, timeline shows only photos under this path
+  albumBreadcrumb: [],   // [{name, path|null}] — navigation trail in albums view
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -463,11 +526,23 @@ function render() {
   const empty = document.getElementById('empty');
   main.innerHTML = '';
 
-  if (!state.photos.length) {
-    empty.classList.remove('hidden');
+  // Filter photos to a specific directory when coming from an album leaf
+  const photos = state.filterDir
+    ? state.photos.filter(p => p.path.startsWith(state.filterDir + '/') || p.path.startsWith(state.filterDir + '\\'))
+    : state.photos;
+
+  if (!photos.length) {
+    showEmpty(
+      state.filterDir ? 'No photos in this album' : 'No photos scanned yet',
+      state.filterDir ? 'This folder contains no photos or videos.' : 'Click <strong>↻ Scan</strong> to find all photos and videos in your configured directories.'
+    );
     return;
   }
   empty.classList.add('hidden');
+
+  // Recompute groups from the (possibly filtered) photo set
+  state.groups = groupPhotos(photos);
+  state.activeMonth = state.groups[0]?.monthKey ?? null;
 
   // EXIF warning
   if (!state.hasExif) {
@@ -792,8 +867,7 @@ async function loadPhotos(index) {
   const data = await res.json();
   state.photos = data.photos || [];
   state.hasExif = !!data.hasExif;
-  state.groups = groupPhotos(state.photos);
-  state.activeMonth = state.groups[0]?.monthKey ?? null;
+  // groups + activeMonth are computed inside render() so filtering applies
   render();
   updateDateChip();
 }
@@ -858,12 +932,142 @@ async function doRefresh() {
   }
 }
 
+// ── Albums ─────────────────────────────────────────────────────────────────────
+async function loadAlbums(dir) {
+  const i = state.currentScan;
+  const url = `/api/albums/${i}` + (dir ? `?dir=${encodeURIComponent(dir)}` : '');
+  const res = await fetch(url);
+  if (!res.ok) {
+    showEmpty('Could not load albums', (await res.json().catch(()=>({}))).error || 'Try refreshing the scan.');
+    return;
+  }
+  const { albums } = await res.json();
+  renderAlbums(albums);
+}
+
+function renderAlbums(albums) {
+  const main = document.getElementById('main');
+  main.innerHTML = '';
+  if (!albums.length) {
+    showEmpty('No albums found', 'This folder has no sub-directories with photos.');
+    return;
+  }
+  document.getElementById('empty').classList.add('hidden');
+  const grid = document.createElement('div');
+  grid.className = 'albums-grid';
+  for (const album of albums) grid.appendChild(makeAlbumCard(album));
+  main.appendChild(grid);
+}
+
+function makeAlbumCard(album) {
+  const card = document.createElement('div');
+  card.className = 'album-card';
+
+  if (album.coverPhoto) {
+    const img = document.createElement('img');
+    img.src = thumbUrl(album.coverPhoto);
+    img.alt = album.name;
+    img.onerror = () => { img.style.display = 'none'; noCover.style.display = 'flex'; };
+    card.appendChild(img);
+  }
+  const noCover = document.createElement('div');
+  noCover.className = 'album-no-cover';
+  noCover.textContent = '🗂';
+  noCover.style.display = album.coverPhoto ? 'none' : 'flex';
+  card.appendChild(noCover);
+
+  const info = document.createElement('div');
+  info.className = 'album-info';
+  info.innerHTML =
+    `<div class="album-title">${esc(album.name)}</div>` +
+    `<div class="album-subtitle">${esc(album.count.toLocaleString())} items · ${esc(album.dateRange)}</div>`;
+  card.appendChild(info);
+
+  card.addEventListener('click', () => openAlbum(album));
+  return card;
+}
+
+function openAlbum(album) {
+  state.albumBreadcrumb.push({ name: album.name, path: album.path });
+  renderBreadcrumb();
+  if (album.hasSubAlbums) {
+    loadAlbums(album.path);
+  } else {
+    // Leaf: switch to filtered timeline
+    state.view = 'timeline';
+    state.filterDir = album.path;
+    updateViewControls();
+    render();
+    updateDateChip();
+  }
+}
+
+function navigateBreadcrumb(index) {
+  state.albumBreadcrumb = state.albumBreadcrumb.slice(0, index + 1);
+  renderBreadcrumb();
+  const crumb = state.albumBreadcrumb[index];
+  if (crumb.path === null) {
+    // Root albums
+    state.view = 'albums';
+    state.filterDir = null;
+    updateViewControls();
+    loadAlbums(null);
+  } else {
+    state.view = 'albums';
+    state.filterDir = null;
+    updateViewControls();
+    loadAlbums(crumb.path);
+  }
+}
+
+function renderBreadcrumb() {
+  const el = document.getElementById('breadcrumb');
+  const bc = state.albumBreadcrumb;
+  if (!bc.length) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  el.innerHTML = bc.map((crumb, i) => {
+    const sep = i > 0 ? '<span class="crumb-sep">›</span>' : '';
+    const isLast = i === bc.length - 1;
+    if (isLast) return `${sep}<span class="crumb current">${esc(crumb.name)}</span>`;
+    return `${sep}<span class="crumb" onclick="navigateBreadcrumb(${i})">${esc(crumb.name)}</span>`;
+  }).join('');
+}
+
+function switchView(view) {
+  state.view = view;
+  state.filterDir = null;
+  if (view === 'albums') {
+    state.albumBreadcrumb = [{ name: 'Albums', path: null }];
+    renderBreadcrumb();
+    updateViewControls();
+    loadAlbums(null);
+  } else {
+    state.albumBreadcrumb = [];
+    renderBreadcrumb();
+    updateViewControls();
+    render();
+    updateDateChip();
+  }
+}
+
+function updateViewControls() {
+  const inTimeline = state.view === 'timeline' && !state.filterDir;
+  document.getElementById('view-timeline').classList.toggle('active', state.view === 'timeline');
+  document.getElementById('view-albums').classList.toggle('active', state.view === 'albums');
+  document.getElementById('month-btn').style.display   = inTimeline ? '' : 'none';
+  document.getElementById('date-chip').classList.toggle('hidden', !inTimeline);
+  if (!inTimeline && state.pickerOpen) {
+    state.pickerOpen = false;
+    document.getElementById('month-picker').classList.add('hidden');
+  }
+}
+
 // ── Re-layout on resize ───────────────────────────────────────────────────────
 let resizeTimer = null;
 new ResizeObserver(() => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
-    if (state.photos.length) render();
+    if (state.view === 'timeline' && state.photos.length) render();
   }, 200);
 }).observe(document.getElementById('main'));
 
@@ -871,10 +1075,17 @@ new ResizeObserver(() => {
 document.getElementById('scan-select').addEventListener('change', async e => {
   state.currentScan = parseInt(e.target.value);
   state.activeMonth = null;
+  state.filterDir = null;
+  state.albumBreadcrumb = state.view === 'albums' ? [{ name: 'Albums', path: null }] : [];
   updateStatus();
+  renderBreadcrumb();
   document.getElementById('empty').classList.add('hidden');
   document.getElementById('main').innerHTML = '';
-  await loadPhotos(state.currentScan);
+  if (state.view === 'albums') {
+    await loadAlbums(null);
+  } else {
+    await loadPhotos(state.currentScan);
+  }
 });
 
 // ── Init ───────────────────────────────────────────────────────────────────────

@@ -8,6 +8,12 @@
       ]
     },
     {
+      "name": "Shutterfly",
+      "dirs": [
+        "/mnt/c/Users/steve/AwsBackup/Pictures/Shutterfly Highlights"
+      ]
+    },
+    {
       "name": "OneDrive",
       "dirs": [
         "/mnt/c/Users/steve/OneDrive"

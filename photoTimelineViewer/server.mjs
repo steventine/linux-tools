@@ -280,6 +280,70 @@ app.get('/api/scan-progress', (req, res) => {
   req.on('close', () => sseClients.get(i)?.delete(res));
 });
 
+// ── Albums ────────────────────────────────────────────────────────────────────
+function fmtDateRange(oldest, newest) {
+  const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const o = new Date(oldest), n = new Date(newest);
+  const os = `${MO[o.getMonth()]} ${o.getFullYear()}`;
+  const ns = `${MO[n.getMonth()]} ${n.getFullYear()}`;
+  return os === ns ? ns : `${os} – ${ns}`;
+}
+
+app.get('/api/albums/:index', async (req, res) => {
+  const i = parseInt(req.params.index);
+  if (isNaN(i) || !config.scans[i]) return res.status(400).json({ error: 'Invalid index' });
+  const cache = await readCache(i);
+  if (!cache) return res.status(404).json({ error: 'No cache — scan first' });
+
+  const scan = config.scans[i];
+  const reqDir = req.query.dir ? path.normalize(req.query.dir) : null;
+
+  if (reqDir && !scan.dirs.some(d => reqDir === path.normalize(d) || reqDir.startsWith(path.normalize(d) + path.sep))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const parentDirs = reqDir ? [reqDir] : scan.dirs.map(d => path.normalize(d));
+  const albumMap = new Map(); // subPath → { name, path, photos[] }
+
+  for (const photo of cache.photos) {
+    const pp = path.normalize(photo.path);
+    for (const parent of parentDirs) {
+      if (!pp.startsWith(parent + path.sep)) continue;
+      const rel = pp.slice(parent.length + 1);
+      const sep = rel.indexOf(path.sep);
+      if (sep === -1) break; // photo sits directly in parent — not a sub-album
+      const subName = rel.slice(0, sep);
+      const subPath = parent + path.sep + subName;
+      if (!albumMap.has(subPath)) albumMap.set(subPath, { name: subName, path: subPath, photos: [] });
+      albumMap.get(subPath).photos.push(photo);
+      break;
+    }
+  }
+
+  const albums = [];
+  for (const [, album] of albumMap) {
+    const photos = album.photos; // already sorted newest-first from cache
+    const cover = photos[0];
+    const oldest = photos[photos.length - 1];
+    const hasSubAlbums = photos.some(p => {
+      const rel = path.normalize(p.path).slice(album.path.length + 1);
+      return rel.includes(path.sep);
+    });
+    albums.push({
+      name: album.name,
+      path: album.path,
+      coverPhoto: cover.path,
+      count: photos.length,
+      dateRange: fmtDateRange(oldest.date, cover.date),
+      newestDate: cover.date,
+      hasSubAlbums,
+    });
+  }
+
+  albums.sort((a, b) => b.newestDate.localeCompare(a.newestDate));
+  res.json({ albums });
+});
+
 app.get('/api/config', async (_req, res) => {
   const scans = await Promise.all(config.scans.map(async (scan, i) => {
     const cache = await readCache(i);
