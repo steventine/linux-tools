@@ -539,6 +539,7 @@ function computeRows(photos, containerW) {
 
 // ── Lazy loading ──────────────────────────────────────────────────────────────
 let observer = null;
+let resumeTimer = null;
 
 function setupLazyLoad() {
   if (observer) observer.disconnect();
@@ -557,8 +558,17 @@ function setupLazyLoad() {
 
 function observe(img) { observer?.observe(img); }
 
+// Used by the scrubber: disconnect while dragging so no requests fire mid-scrub.
 function pauseLazyLoad() {
+  clearTimeout(resumeTimer);
   observer?.disconnect();
+}
+
+// After scrubber drag ends, wait briefly then resume — only images the user
+// has actually settled on will load.
+function scheduleResume(delay = 400) {
+  clearTimeout(resumeTimer);
+  resumeTimer = setTimeout(resumeLazyLoad, delay);
 }
 
 function resumeLazyLoad() {
@@ -1078,14 +1088,16 @@ function setupScrubberDrag() {
 
   document.addEventListener('mousemove', e => {
     if (!dragging) return;
+    pauseLazyLoad();               // re-pause if idle resume had fired
     window.scrollTo(0, posToScroll(e.clientY));
+    scheduleResume(600);           // load if mouse stays still for 600ms
   });
 
   document.addEventListener('mouseup', () => {
     if (!dragging) return;
     dragging = false;
     document.getElementById('timeline-scrubber').classList.remove('dragging');
-    resumeLazyLoad();
+    scheduleResume(400);           // shorter delay on release — user has settled
   });
 
   // Touch support
@@ -1099,14 +1111,16 @@ function setupScrubberDrag() {
 
   document.addEventListener('touchmove', e => {
     if (!dragging) return;
+    pauseLazyLoad();
     window.scrollTo(0, posToScroll(e.touches[0].clientY));
+    scheduleResume(600);
     e.preventDefault();
   }, { passive: false });
 
   document.addEventListener('touchend', () => {
     dragging = false;
     document.getElementById('timeline-scrubber').classList.remove('dragging');
-    resumeLazyLoad();
+    scheduleResume(400);
   });
 }
 
