@@ -14,6 +14,12 @@
       ]
     },
     {
+      "name": "OneDrive Concerts Test",
+      "dirs": [
+        "/mnt/c/Users/steve/OneDrive/Pictures/Concerts/SNC - PMJ"
+      ]
+    },
+    {
       "name": "OneDrive",
       "dirs": [
         "/mnt/c/Users/steve/OneDrive"

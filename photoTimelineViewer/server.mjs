@@ -106,11 +106,14 @@ function spawnExiftool(args, onProgress) {
       const text = d.toString();
       process.stderr.write(text); // still visible in terminal
       buf += text;
-      const lines = buf.split('\n');
+      const lines = buf.split(/\r\n|\r|\n/);
       buf = lines.pop(); // keep any incomplete line
       for (const line of lines) {
-        const m = line.match(/(\d+\.?\d*)%(?:\s+\(\s*(\d+)\s+of\s+(\d+)\))?/);
-        if (m) onProgress?.({ pct: parseFloat(m[1]), current: parseInt(m[2]) || 0, total: parseInt(m[3]) || 0 });
+        const m = line.match(/\[(\d+)\/(\d+)\]/);
+        if (m) {
+          const current = parseInt(m[1]), total = parseInt(m[2]);
+          onProgress?.({ pct: total > 0 ? (current / total) * 100 : 0, current, total });
+        }
       }
     });
 

@@ -946,11 +946,19 @@ function setProgress({ phase, pct, current, total }) {
 
   if (phase === 'starting') {
     phaseEl.textContent = 'Starting scan…';
-    fillEl.className = 'progress-fill indeterminate';
+    fillEl.style.transition = 'none';
+    fillEl.className = 'progress-fill';
+    fillEl.style.width = '0%';
     detailEl.textContent = '';
   } else if (phase === 'scanning') {
     phaseEl.textContent = 'Reading photo metadata…';
-    fillEl.className = 'progress-fill';
+    if (fillEl.classList.contains('indeterminate')) {
+      fillEl.style.transition = 'none';
+      fillEl.className = 'progress-fill';
+      fillEl.style.width = '0%';
+      fillEl.offsetWidth; // force reflow so 0% registers before transition resumes
+      fillEl.style.transition = '';
+    }
     fillEl.style.width = pct + '%';
     detailEl.textContent = total
       ? `${current.toLocaleString()} of ${total.toLocaleString()} files (${pct.toFixed(1)}%)`
