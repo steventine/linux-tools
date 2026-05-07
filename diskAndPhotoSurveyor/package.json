@@ -1,0 +1,12 @@
+{
+  "name": "disk-and-photo-surveyor",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "sharp": "^0.33.3"
+  }
+}

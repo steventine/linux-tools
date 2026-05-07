@@ -1,0 +1,1835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Disk &amp; Photo Surveyor</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #111;
+  --bg-header: rgba(16,16,16,0.96);
+  --bg-surface: #1a1a1a;
+  --bg-surface2: #222;
+  --bg-picker: #1e1e1e;
+  --bg-lb: rgba(0,0,0,0.92);
+  --text: #eee;
+  --text-dim: #888;
+  --text-muted: #555;
+  --accent: #4a9eff;
+  --accent2: #4ecca3;
+  --danger: #dc2626;
+  --border: #2a2a2a;
+  --gap: 2px;
+  --hh: 52px;          /* header height */
+  --nh: 40px;          /* tab nav height */
+  --radius: 6px;
+}
+
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; font-size: 14px; }
+
+/* ── Shared buttons ──────────────────────────────────────────────────────── */
+.btn {
+  background: #2a2a2a; color: var(--text); border: 1px solid #3a3a3a;
+  border-radius: var(--radius); padding: 5px 12px; font-size: 13px; cursor: pointer;
+  white-space: nowrap; transition: background .15s; font-weight: 500;
+}
+.btn:hover { background: #333; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-primary:hover { background: #3a8ee8; border-color: #3a8ee8; }
+.btn-success { background: var(--accent2); border-color: var(--accent2); color: #000; }
+.btn-success:hover { opacity: .85; }
+.btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn-danger:hover { background: #b91c1c; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ── Fixed header ────────────────────────────────────────────────────────── */
+#header {
+  position: fixed; top: 0; left: 0; right: 0; height: var(--hh);
+  background: var(--bg-header); backdrop-filter: blur(8px);
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 16px; z-index: 100; border-bottom: 1px solid #222;
+}
+.logo { font-size: 15px; font-weight: 600; white-space: nowrap; }
+#scan-select {
+  background: #222; color: var(--text); border: 1px solid #333;
+  border-radius: var(--radius); padding: 4px 8px; font-size: 13px; cursor: pointer;
+}
+.spacer { flex: 1; }
+#status-text { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+
+/* ── Tab navigation ──────────────────────────────────────────────────────── */
+#tabnav {
+  position: fixed; top: var(--hh); left: 0; right: 0; height: var(--nh);
+  background: var(--bg-header); border-bottom: 1px solid #222;
+  display: flex; align-items: stretch; z-index: 99;
+}
+.tabnav-btn {
+  background: none; border: none; color: var(--text-dim);
+  border-bottom: 3px solid transparent;
+  padding: 0 20px; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: color .15s, border-color .15s; white-space: nowrap;
+}
+.tabnav-btn:hover { color: var(--text); }
+.tabnav-btn.active { color: var(--accent2); border-bottom-color: var(--accent2); }
+.tabnav-spacer { flex: 1; }
+
+/* ── Loading overlay ─────────────────────────────────────────────────────── */
+#loading {
+  position: fixed; inset: 0; background: rgba(0,0,0,.75);
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; z-index: 500;
+}
+#loading.hidden { display: none; }
+.scan-progress { text-align: center; width: 360px; }
+.scan-progress .phase { font-size: 15px; color: var(--text); margin-bottom: 14px; }
+.progress-track { background: #2a2a2a; border-radius: 4px; height: 6px; overflow: hidden; margin-bottom: 10px; }
+.progress-fill { height: 100%; border-radius: 4px; width: 0%; background: var(--accent2); transition: width .3s ease; }
+.progress-fill.indeterminate {
+  width: 40% !important;
+  background: linear-gradient(90deg, transparent, var(--accent2), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+}
+@keyframes shimmer { from { background-position: 200% 0 } to { background-position: -200% 0 } }
+.scan-progress .detail { font-size: 12px; color: var(--text-dim); min-height: 18px; }
+
+/* ── Panels ──────────────────────────────────────────────────────────────── */
+.panel { display: none; margin-top: calc(var(--hh) + var(--nh)); }
+.panel.active { display: block; }
+
+/* ── Empty states ────────────────────────────────────────────────────────── */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; min-height: 60vh;
+  gap: 12px; color: var(--text-dim); text-align: center; padding: 40px;
+}
+.empty-state h2 { font-size: 18px; color: var(--text); }
+.empty-state p { font-size: 13px; max-width: 380px; line-height: 1.6; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   DISK SPACE TAB
+   ════════════════════════════════════════════════════════════════════════════ */
+#panel-disk { padding: 16px; padding-bottom: 40px; }
+
+.disk-stats-row {
+  display: flex; gap: 24px; flex-wrap: wrap;
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 18px; margin-bottom: 12px;
+}
+.stat { display: flex; flex-direction: column; gap: 2px; }
+.stat-val { font-size: 20px; font-weight: 700; color: var(--accent2); }
+.stat-lbl { font-size: 11px; color: var(--text-dim); }
+
+.disk-card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.disk-breadcrumb {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 10px 14px; font-size: 12px; color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+.disk-breadcrumb .crumb { color: var(--accent); cursor: pointer; }
+.disk-breadcrumb .crumb:hover { text-decoration: underline; }
+.disk-breadcrumb .crumb.current { color: var(--text); cursor: default; }
+.disk-breadcrumb .crumb-sep { color: var(--border); }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  text-align: left; padding: 8px 12px; color: var(--text-dim); font-weight: 600;
+  border-bottom: 1px solid var(--border); white-space: nowrap; font-size: 12px;
+}
+td { padding: 7px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,.025); }
+
+.name-cell { display: flex; align-items: center; gap: 6px; }
+.name-icon { font-size: 14px; flex-shrink: 0; }
+.name-link { cursor: pointer; color: var(--text); transition: color .12s; }
+.name-link:hover { color: var(--accent2); }
+.not-dir { color: var(--text-dim); }
+
+.bar-cell { width: 160px; }
+.bar-wrap { display: flex; flex-direction: column; gap: 3px; }
+.bar-track { height: 5px; background: #2a2a2a; border-radius: 3px; overflow: hidden; }
+.bar-fill-parent { height: 100%; border-radius: 3px; background: var(--accent2); min-width: 1px; }
+.bar-fill-root { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #38bdf8, #6366f1); min-width: 1px; }
+.bar-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   DUPLICATES TAB  (ported from findDupFiles — dark-themed)
+   ════════════════════════════════════════════════════════════════════════════ */
+#panel-dups { padding-bottom: 100px; }
+
+.dups-subtabs {
+  display: flex; gap: 4px; padding: 10px 16px 0;
+  background: var(--bg-surface); border-bottom: 1px solid var(--border);
+  position: sticky; top: calc(var(--hh) + var(--nh)); z-index: 80;
+}
+.dups-subtab {
+  padding: 7px 16px; border: none; border-radius: var(--radius) var(--radius) 0 0;
+  background: #2a2a2a; color: var(--text-dim); cursor: pointer;
+  font-size: 13px; font-weight: 600; transition: background .15s, color .15s;
+}
+.dups-subtab:hover { background: #333; color: var(--text); }
+.dups-subtab.active { background: var(--bg); color: var(--text); }
+.dups-sort-btn {
+  margin-left: auto; padding: 5px 12px;
+  border: 1px solid #3a3a3a; border-radius: var(--radius) var(--radius) 0 0;
+  background: transparent; color: var(--text-dim); font-size: 12px; cursor: pointer;
+  transition: background .15s, color .15s; white-space: nowrap;
+}
+.dups-sort-btn:hover { background: #2a2a2a; color: var(--text); }
+.dups-sort-btn.active { background: #2a2a2a; color: var(--text); font-weight: 700; }
+
+.dups-summary {
+  padding: 6px 16px; font-size: 12px; color: var(--text-dim);
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
+.dups-summary.hidden { display: none; }
+.dups-summary strong { color: var(--text); }
+.dups-summary-sep { color: var(--border); }
+
+.filter-bar {
+  background: var(--bg-surface); border-bottom: 1px solid var(--border);
+  padding: 8px 16px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+}
+.filter-bar.hidden { display: none; }
+.filter-preset-btn {
+  padding: 3px 10px; border-radius: 50px; border: 1.5px solid var(--accent);
+  background: transparent; color: var(--accent); font-size: 12px; font-weight: 600;
+  cursor: pointer; white-space: nowrap; transition: background .15s, color .15s;
+}
+.filter-preset-btn:hover { background: var(--accent); color: #fff; }
+.filter-action-btn {
+  padding: 3px 10px; border-radius: 50px; border: 1px solid var(--border);
+  background: transparent; color: var(--text-dim); font-size: 12px; cursor: pointer;
+  white-space: nowrap; transition: background .15s, color .15s;
+}
+.filter-action-btn:hover { background: #2a2a2a; color: var(--text); }
+.filter-sep { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+.ext-chip {
+  padding: 2px 9px; border-radius: 50px; border: 1px solid var(--border);
+  background: #2a2a2a; color: var(--text-dim); font-size: 12px; font-weight: 600;
+  cursor: pointer; opacity: .45; transition: opacity .15s, background .15s, color .15s; white-space: nowrap;
+}
+.ext-chip.active { opacity: 1; background: #3a3a4a; color: var(--text); border-color: #555; }
+.ext-chip:hover { opacity: 1; }
+.chip-count { font-weight: 400; opacity: .75; font-size: 11px; }
+
+#dups-groups-container { padding: 12px 16px; }
+
+.group { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 14px; overflow: hidden; transition: opacity .2s; }
+.group.resolved { opacity: .55; }
+.files-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1px; background: var(--border); }
+
+.file-card { background: var(--bg-surface); padding: 12px; display: flex; flex-direction: column; gap: 8px; transition: background .2s; }
+.file-card.to-delete { background: rgba(220,38,38,.12); border-left: 3px solid var(--danger); }
+
+.file-preview {
+  width: 100%; height: 160px; background: #1e1e1e; border-radius: 4px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.file-preview img { width: 100%; height: 100%; object-fit: contain; }
+.file-preview video { width: 100%; max-height: 160px; }
+.file-preview audio { width: 100%; padding: 0 8px; }
+.preview-icon { display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--text-dim); font-size: 12px; }
+.preview-icon svg { opacity: .3; }
+
+.card-row { display: flex; align-items: flex-start; gap: 8px; }
+.ext-badge {
+  flex-shrink: 0; background: #2a2a3a; padding: 2px 6px; border-radius: 4px;
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--accent2); margin-top: 2px; white-space: nowrap;
+}
+.file-info { flex: 1; min-width: 0; }
+.file-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-dir { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.file-meta { margin-top: 5px; font-size: 11px; color: var(--text-dim); display: flex; gap: 8px; flex-wrap: wrap; }
+.deleted-tag { color: var(--danger); font-weight: 600; }
+.cloud-tag { color: var(--accent2); }
+
+.file-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
+.delete-btn {
+  padding: 5px 10px; border-radius: var(--radius); border: 1.5px solid var(--danger);
+  background: transparent; color: var(--danger); font-size: 12px; font-weight: 600;
+  cursor: pointer; white-space: nowrap; transition: background .15s, color .15s;
+}
+.delete-btn:hover { background: rgba(220,38,38,.15); }
+.delete-btn.active { background: var(--danger); color: #fff; }
+.delete-btn.active:hover { background: #b91c1c; }
+.preview-toggle-btn {
+  padding: 3px 8px; border-radius: var(--radius); border: 1px solid var(--border);
+  background: transparent; cursor: pointer; font-size: 11px; color: var(--text-dim);
+  white-space: nowrap; transition: background .15s, color .15s;
+}
+.preview-toggle-btn:hover, .preview-toggle-btn.active { background: #2a2a2a; color: var(--text); }
+
+.group-footer {
+  padding: 7px 12px; display: flex; align-items: center; gap: 8px;
+  border-top: 1px solid var(--border); background: #1e1e1e;
+}
+.skip-btn {
+  font-size: 12px; padding: 3px 10px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: transparent; cursor: pointer; color: var(--text-dim);
+  transition: background .15s, color .15s;
+}
+.skip-btn:hover { background: #2a2a2a; color: var(--text); }
+.skip-btn.active { background: #2a2a2a; color: var(--text); font-weight: 600; }
+.undo-btn {
+  font-size: 12px; padding: 3px 10px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: transparent; cursor: pointer; color: var(--text-dim);
+}
+.undo-btn:hover { background: #2a2a2a; }
+.name-only-label {
+  font-size: 11px; color: #ccaa44; background: #332a00; border: 1px solid #554400;
+  padding: 1px 7px; border-radius: 4px; margin-left: auto;
+}
+.unreadable-label {
+  font-size: 11px; color: var(--accent2); background: rgba(78,204,163,.1);
+  border: 1px solid rgba(78,204,163,.2); padding: 1px 7px; border-radius: 4px; margin-left: auto;
+}
+
+/* FAB */
+#fab { position: fixed; bottom: 28px; right: 28px; z-index: 200; }
+#fab.hidden { display: none; }
+#review-btn { padding: 12px 22px; font-size: 14px; border-radius: 50px; box-shadow: 0 4px 16px rgba(0,0,0,.5); }
+
+/* Delete modal */
+#modal-backdrop {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6);
+  z-index: 300; align-items: center; justify-content: center;
+}
+#modal-backdrop.open { display: flex; }
+.modal {
+  background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px;
+  width: 560px; max-width: 95vw; max-height: 80vh;
+  display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.6);
+}
+.modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border); font-size: 15px; font-weight: 600; }
+.modal-body { flex: 1; overflow-y: auto; padding: 14px 20px; }
+.modal-footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+.modal-file-list { display: flex; flex-direction: column; gap: 5px; }
+.modal-file-item {
+  padding: 7px 10px; border-radius: 5px; background: rgba(220,38,38,.12);
+  border: 1px solid rgba(220,38,38,.2); font-size: 12px; word-break: break-all; color: #fca5a5;
+}
+.modal-file-item.ok   { background: rgba(34,197,94,.1); border-color: rgba(34,197,94,.2); color: #86efac; }
+.modal-file-item.fail { background: rgba(220,38,38,.12); border-color: rgba(220,38,38,.2); color: #fca5a5; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   TIMELINE TAB  (ported from photoTimelineViewer)
+   ════════════════════════════════════════════════════════════════════════════ */
+#panel-timeline { padding-bottom: 40px; padding-right: 54px; }
+
+/* Timeline toolbar (EXIF scan row) */
+.timeline-toolbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 16px; background: var(--bg-surface); border-bottom: 1px solid var(--border);
+  position: sticky; top: calc(var(--hh) + var(--nh)); z-index: 80;
+}
+.view-toggle { display: flex; background: #1e1e1e; border: 1px solid #333; border-radius: 4px; overflow: hidden; }
+.vtbtn {
+  background: none; border: none; color: var(--text-dim);
+  padding: 4px 12px; font-size: 12px; cursor: pointer; transition: background .12s, color .12s;
+}
+.vtbtn:hover { background: #2a2a2a; color: var(--text); }
+.vtbtn.active { background: #2e2e2e; color: var(--text); }
+#date-chip {
+  font-size: 12px; color: var(--text); background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.1); border-radius: 20px;
+  padding: 2px 10px; white-space: nowrap; transition: opacity .2s;
+}
+#date-chip.hidden { opacity: 0; pointer-events: none; }
+#exif-status { font-size: 12px; color: var(--text-dim); }
+#month-btn { font-size: 12px; }
+
+/* Month picker */
+#month-picker {
+  position: fixed; top: calc(var(--hh) + var(--nh) + 40px); right: 16px;
+  background: var(--bg-picker); border: 1px solid #333; border-radius: var(--radius);
+  padding: 12px 16px; z-index: 99; max-height: calc(100vh - var(--hh) - var(--nh) - 60px);
+  overflow-y: auto; min-width: 220px; box-shadow: 0 8px 32px rgba(0,0,0,.6);
+}
+#month-picker.hidden { display: none; }
+.picker-year { font-size: 11px; font-weight: 600; color: var(--text-dim); margin: 10px 0 4px; text-transform: uppercase; letter-spacing: .5px; }
+.picker-year:first-child { margin-top: 0; }
+.picker-months { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.picker-month {
+  padding: 4px; font-size: 12px; text-align: center; border-radius: 4px;
+  cursor: pointer; color: var(--text-muted); transition: background .12s, color .12s;
+}
+.picker-month:hover { background: #333; color: var(--text); }
+.picker-month.active { background: var(--accent); color: #fff; }
+.picker-month.has-photos { color: var(--text); }
+
+/* Breadcrumb */
+#tl-breadcrumb {
+  position: sticky; top: calc(var(--hh) + var(--nh) + 40px); z-index: 79;
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 16px; font-size: 13px;
+  background: var(--bg-header); border-bottom: 1px solid #1e1e1e;
+}
+#tl-breadcrumb.hidden { display: none; }
+.crumb { color: var(--accent); cursor: pointer; }
+.crumb:hover { text-decoration: underline; }
+.crumb.current { color: var(--text); cursor: default; }
+.crumb-sep { color: var(--text-muted); font-size: 11px; }
+
+/* Month sections */
+.month-section { margin-bottom: 4px; }
+.month-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 18px 16px 8px; font-size: 15px; font-weight: 600; color: var(--text);
+}
+.month-header-count { font-size: 13px; font-weight: 400; color: var(--text-dim); }
+.day-label { padding: 6px 16px 4px; font-size: 12px; color: var(--text-dim); letter-spacing: .3px; }
+
+/* Photo rows */
+.photo-row { display: flex; gap: var(--gap); margin-bottom: var(--gap); overflow: hidden; }
+.tile {
+  position: relative; flex-shrink: 0; overflow: hidden; cursor: pointer; background: #1a1a1a;
+}
+.tile:hover .tile-overlay { opacity: 1; }
+.tile img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .2s; }
+.tile:hover img { transform: scale(1.03); }
+.tile-overlay {
+  position: absolute; inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,.65) 0%, transparent 50%);
+  opacity: 0; transition: opacity .2s; display: flex; align-items: flex-end; padding: 8px;
+}
+.tile-date { font-size: 11px; color: #ddd; line-height: 1.2; }
+.tile-video-badge {
+  position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,.55); color: #fff;
+  font-size: 10px; padding: 2px 5px; border-radius: 3px; pointer-events: none;
+}
+.tile-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #333; font-size: 28px; }
+.tile-cloud { position: absolute; top: 4px; left: 6px; font-size: 12px; color: var(--accent2); }
+
+/* Album grid */
+.albums-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; padding: 16px; }
+.album-card {
+  position: relative; border-radius: 8px; overflow: hidden;
+  aspect-ratio: 3/2; background: #1e1e1e; cursor: pointer; transition: transform .15s, box-shadow .15s;
+}
+.album-card:hover { transform: scale(1.025); box-shadow: 0 6px 24px rgba(0,0,0,.55); }
+.album-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.album-no-cover { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; color: #333; }
+.album-info {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: linear-gradient(to top, rgba(0,0,0,.82) 0%, rgba(0,0,0,.15) 65%, transparent 100%);
+  padding: 32px 12px 11px;
+}
+.album-title { font-size: 14px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.album-subtitle { font-size: 11px; color: rgba(255,255,255,.6); margin-top: 3px; }
+
+/* Timeline scrubber */
+#timeline-scrubber {
+  position: fixed; right: 0; top: calc(var(--hh) + var(--nh)); bottom: 0;
+  width: 54px; z-index: 80; cursor: ns-resize;
+}
+#timeline-scrubber.hidden { display: none; }
+#scrubber-track { position: absolute; right: 7px; top: 8px; bottom: 8px; width: 1px; background: #2e2e2e; border-radius: 1px; pointer-events: none; }
+.scrubber-year {
+  position: absolute; right: 14px; font-size: 11px; color: #555; line-height: 1;
+  transform: translateY(-50%); white-space: nowrap; cursor: pointer;
+  transition: color .12s; user-select: none;
+}
+.scrubber-year:hover { color: #999; }
+.scrubber-year.active { color: #bbb; }
+#scrubber-handle {
+  position: absolute; right: 0; left: 0; height: 2px; background: #e8533a;
+  transform: translateY(-50%); pointer-events: none; transition: top .05s linear;
+}
+#timeline-scrubber.dragging #scrubber-handle { transition: none; }
+
+/* Lightbox */
+#lightbox { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; }
+#lightbox.hidden { display: none; }
+.lb-backdrop { position: absolute; inset: 0; background: var(--bg-lb); cursor: pointer; }
+.lb-close {
+  position: absolute; top: 12px; right: 16px; z-index: 10;
+  background: none; border: none; color: #ccc; font-size: 28px; cursor: pointer; line-height: 1; padding: 4px 8px; transition: color .15s;
+}
+.lb-close:hover { color: #fff; }
+.lb-arrow {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 10;
+  background: rgba(255,255,255,.08); border: none; color: #ccc;
+  font-size: 36px; cursor: pointer; padding: 12px 14px; border-radius: 4px;
+  transition: background .15s, color .15s; line-height: 1;
+}
+.lb-arrow:hover { background: rgba(255,255,255,.16); color: #fff; }
+.lb-arrow.hidden { display: none; }
+#lb-prev { left: 12px; }
+#lb-next { right: 12px; }
+.lb-wrap { position: relative; z-index: 5; display: flex; flex-direction: column; align-items: center; max-width: 90vw; max-height: 90vh; }
+#lb-media { max-width: 90vw; max-height: calc(90vh - 90px); display: flex; align-items: center; justify-content: center; }
+#lb-media img, #lb-media video { max-width: 100%; max-height: calc(90vh - 90px); object-fit: contain; display: block; border-radius: 2px; }
+.lb-spinner { width: 32px; height: 32px; border: 3px solid #333; border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.lb-info { margin-top: 12px; text-align: center; max-width: 80vw; overflow: hidden; }
+.lb-filename { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 4px; }
+.lb-meta { font-size: 12px; color: var(--text-dim); }
+.lb-path { font-size: 11px; color: var(--text-muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70vw; }
+.lb-date-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); margin-bottom: 2px; }
+.lb-edit-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; padding: 0 3px; line-height: 1; transition: color .15s; }
+.lb-edit-btn:hover { color: var(--accent); }
+.lb-date-input { background: #222; color: var(--text); border: 1px solid #444; border-radius: 4px; padding: 3px 7px; font-size: 12px; color-scheme: dark; font-family: inherit; }
+.lb-date-action { background: #2a2a2a; color: var(--text); border: 1px solid #3a3a3a; border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: pointer; transition: background .15s; }
+.lb-date-action:hover { background: #333; }
+.lb-date-action.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.lb-date-action.primary:hover { background: #3a8ee8; }
+.lb-date-action:disabled { opacity: .5; cursor: default; }
+
+/* Spinner for buttons */
+.spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 5px; }
+</style>
+</head>
+<body>
+
+<!-- ── Fixed header ──────────────────────────────────────────────────────── -->
+<div id="header">
+  <span class="logo">💾📷 Disk &amp; Photo Surveyor</span>
+  <select id="scan-select"></select>
+  <button id="btn-scan" class="btn btn-primary">↻ Scan</button>
+  <div class="spacer"></div>
+  <span id="status-text"></span>
+</div>
+
+<!-- ── Tab navigation ────────────────────────────────────────────────────── -->
+<div id="tabnav">
+  <button class="tabnav-btn active" data-tab="disk">💾 Disk Space</button>
+  <button class="tabnav-btn" data-tab="dups">🔍 Duplicates</button>
+  <button class="tabnav-btn" data-tab="timeline">📷 Timeline</button>
+</div>
+
+<!-- ── Loading overlay ───────────────────────────────────────────────────── -->
+<div id="loading" class="hidden">
+  <div class="scan-progress">
+    <div class="phase" id="progress-phase">Starting scan…</div>
+    <div class="progress-track"><div class="progress-fill indeterminate" id="progress-fill"></div></div>
+    <div class="detail" id="progress-detail"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════ DISK SPACE PANEL ══════════════════════════════ -->
+<div class="panel active" id="panel-disk">
+  <div id="disk-empty" class="empty-state">
+    <h2>No scan data yet</h2>
+    <p>Select a scan and click <strong>↻ Scan</strong> to analyse disk usage.</p>
+  </div>
+  <div id="disk-content" style="display:none">
+    <div class="disk-stats-row" id="disk-stats-row"></div>
+    <div class="disk-card">
+      <div class="disk-breadcrumb" id="disk-breadcrumb"></div>
+      <table>
+        <thead><tr>
+          <th>Name</th>
+          <th style="text-align:right">Size</th>
+          <th style="text-align:right">Files</th>
+          <th class="bar-cell">% of parent &nbsp;·&nbsp; % of root</th>
+        </tr></thead>
+        <tbody id="disk-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ DUPLICATES PANEL ══════════════════════════════ -->
+<div class="panel" id="panel-dups">
+  <div id="dups-empty" class="empty-state">
+    <h2>No scan data yet</h2>
+    <p>Select a scan and click <strong>↻ Scan</strong> to find duplicate files.</p>
+  </div>
+  <div id="dups-content" style="display:none">
+    <div class="dups-subtabs">
+      <button class="dups-subtab active" data-dtab="confirmed">Confirmed Duplicates (<span id="count-confirmed">0</span><span id="savings-confirmed"></span>)</button>
+      <button class="dups-subtab" data-dtab="nameOnly">Name-Only Matches (<span id="count-nameOnly">0</span><span id="savings-nameOnly"></span>)</button>
+      <button id="dups-sort-btn" class="dups-sort-btn">Sort by size</button>
+    </div>
+    <div id="dups-filter-bar" class="filter-bar hidden">
+      <button class="filter-preset-btn" id="filter-pics-videos">📷 Pictures &amp; Videos</button>
+      <div class="filter-sep"></div>
+      <button id="filter-all" class="filter-action-btn">Select all</button>
+      <button id="filter-clear" class="filter-action-btn">Clear all</button>
+      <div class="filter-sep"></div>
+      <div id="filter-chips" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+    </div>
+    <div id="dups-summary" class="dups-summary hidden"></div>
+    <div id="dups-groups-container"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════ TIMELINE PANEL ════════════════════════════════ -->
+<div class="panel" id="panel-timeline">
+  <div id="tl-empty" class="empty-state">
+    <h2>No scan data yet</h2>
+    <p>Select a scan and click <strong>↻ Scan</strong>, then run an EXIF scan to build the photo timeline.</p>
+  </div>
+  <div id="tl-content" style="display:none">
+    <div class="timeline-toolbar">
+      <div class="view-toggle">
+        <button id="view-timeline" class="vtbtn active" data-view="timeline">Timeline</button>
+        <button id="view-albums"   class="vtbtn"        data-view="albums">Albums</button>
+      </div>
+      <div id="date-chip" class="hidden"></div>
+      <div class="spacer"></div>
+      <span id="exif-status"></span>
+      <button id="btn-exiftool" class="btn btn-success">Run EXIF Scan</button>
+      <button id="month-btn" class="btn">Jump to Month ▾</button>
+    </div>
+    <div id="tl-breadcrumb" class="hidden"></div>
+    <div id="tl-main"></div>
+  </div>
+</div>
+
+<!-- ── Timeline scrubber ─────────────────────────────────────────────────── -->
+<div id="timeline-scrubber" class="hidden">
+  <div id="scrubber-track"></div>
+  <div id="scrubber-handle"></div>
+</div>
+
+<!-- ── Month picker ──────────────────────────────────────────────────────── -->
+<div id="month-picker" class="hidden"></div>
+
+<!-- ── Lightbox ─────────────────────────────────────────────────────────── -->
+<div id="lightbox" class="hidden">
+  <div class="lb-backdrop" id="lb-backdrop"></div>
+  <button class="lb-close" id="lb-close">×</button>
+  <button class="lb-arrow hidden" id="lb-prev">‹</button>
+  <button class="lb-arrow hidden" id="lb-next">›</button>
+  <div class="lb-wrap">
+    <div id="lb-media"></div>
+    <div class="lb-info">
+      <div class="lb-filename" id="lb-filename"></div>
+      <div class="lb-date-row" id="lb-date-row">
+        <span id="lb-date-display"></span>
+        <button class="lb-edit-btn" id="lb-edit-btn" title="Edit date">✎</button>
+        <span id="lb-date-edit-form" style="display:none;align-items:center;gap:6px">
+          <input type="datetime-local" id="lb-date-input" class="lb-date-input">
+          <button class="lb-date-action primary" id="lb-date-save">Save</button>
+          <button class="lb-date-action" id="lb-date-cancel">Cancel</button>
+        </span>
+      </div>
+      <div class="lb-meta" id="lb-meta"></div>
+      <div class="lb-path" id="lb-path"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Delete FAB + modal ─────────────────────────────────────────────────── -->
+<div id="fab" class="hidden">
+  <button id="review-btn" class="btn btn-danger">
+    Review &amp; Delete (<span id="delete-count">0</span> files<span id="delete-size"></span>)
+  </button>
+</div>
+
+<div id="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header" id="modal-title">Confirm Deletions</div>
+    <div class="modal-body"><div class="modal-file-list" id="modal-file-list"></div></div>
+    <div class="modal-footer">
+      <button id="modal-cancel" class="btn">Cancel</button>
+      <button id="modal-confirm" class="btn btn-danger">Delete Files</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+function fmtSize(b) {
+  if (b == null) return '—';
+  if (b >= 1e9) return (b/1e9).toFixed(1)+' GB';
+  if (b >= 1e6) return (b/1e6).toFixed(1)+' MB';
+  if (b >= 1e3) return (b/1e3).toFixed(1)+' KB';
+  return b+' B';
+}
+function fmtN(n) { return n == null ? '—' : n.toLocaleString(); }
+function fmtAgo(d) {
+  const s = Math.round((Date.now() - d) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.round(s/60)}m ago`;
+  if (s < 86400) return `${Math.round(s/3600)}h ago`;
+  return `${Math.round(s/86400)}d ago`;
+}
+
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+function fmtMonthKey(k) { const [y,m] = k.split('-'); return `${MONTHS[parseInt(m)-1]} ${y}`; }
+function fmtDayKey(k) { const [y,m,d] = k.split('-'); return `${MONTHS[parseInt(m)-1]} ${parseInt(d)}, ${y}`; }
+function fmtDatetime(iso) {
+  const d = new Date(iso); if (isNaN(d)) return '';
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} · ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+}
+
+const IMAGE_EXTS = new Set(['jpg','jpeg','png','gif','webp','bmp','tiff','tif','heic','heif']);
+const VIDEO_EXTS = new Set(['mp4','webm','mov','avi','mkv','m4v','wmv','mts','m2ts']);
+const AUDIO_EXTS = new Set(['mp3','m4a','ogg','wav','flac','aac']);
+
+function fileExt(p) { const m = String(p).match(/\.([^./\\]+)$/); return m ? m[1].toLowerCase() : ''; }
+function fileName(p) { return String(p).replace(/\\/g,'/').split('/').pop(); }
+function fileDir(p)  { const n = fileName(p); return p.slice(0, p.length - n.length); }
+
+async function api(method, url, body) {
+  const opts = { method, headers: {} };
+  if (body) { opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
+  const r = await fetch(url, opts);
+  if (!r.ok) { const e = await r.json().catch(() => ({ error: r.statusText })); throw new Error(e.error || r.statusText); }
+  return r.json();
+}
+
+// ── Global state ──────────────────────────────────────────────────────────────
+const state = {
+  scans: [],
+  currentScan: 0,
+  activeTab: 'disk',
+  // Disk
+  diskData: null,
+  diskNav: [],
+  diskRootSize: 0,
+  // Dups
+  dupsData: null,
+  dupSubtab: 'confirmed',
+  dupSortBySize: false,
+  dupActiveExts: null,
+  dupDecisions: { confirmed: {}, nameOnly: {} },
+  dupDeletedPaths: new Set(),
+  dupExpandedPreviews: new Set(),
+  dupRoots: [],   // [{path, isCloudStored}] for active scan
+  // Timeline
+  tlPhotos: [],
+  tlGroups: [],
+  tlActiveMonth: null,
+  tlPickerOpen: false,
+  tlView: 'timeline',   // 'timeline' | 'albums'
+  tlFilterDir: null,
+  tlAlbumBreadcrumb: [],
+  tlLbIndex: -1,
+  tlHasExif: false,
+};
+
+// ── SSE + loading overlay ─────────────────────────────────────────────────────
+let sseClients = new EventSource('/api/progress');
+sseClients.onmessage = e => handleSSE(JSON.parse(e.data));
+
+function handleSSE(ev) {
+  const fillEl   = document.getElementById('progress-fill');
+  const phaseEl  = document.getElementById('progress-phase');
+  const detailEl = document.getElementById('progress-detail');
+
+  if (ev.type === 'walk-progress') {
+    phaseEl.textContent  = 'Walking filesystem…';
+    detailEl.textContent = `${fmtN(ev.count)} files found`;
+    fillEl.className = 'progress-fill indeterminate';
+  } else if (ev.type === 'walk-complete') {
+    phaseEl.textContent  = 'Processing results…';
+    detailEl.textContent = `${fmtN(ev.fileCount)} files, ${fmtN(ev.photoCount)} media`;
+    fillEl.className = 'progress-fill indeterminate';
+  } else if (ev.type === 'exif-progress') {
+    phaseEl.textContent = 'Reading EXIF metadata…';
+    const pct = ev.total > 0 ? Math.round(ev.done / ev.total * 100) : 0;
+    // If transitioning from indeterminate, reset cleanly to 0% first so the
+    // bar animates up from the left rather than jumping or dropping.
+    if (fillEl.classList.contains('indeterminate')) {
+      fillEl.style.transition = 'none';
+      fillEl.className = 'progress-fill';
+      fillEl.style.width = '0%';
+      fillEl.offsetWidth; // force reflow so 0% registers before transition re-enables
+      fillEl.style.transition = '';
+    }
+    fillEl.style.width = pct + '%';
+    detailEl.textContent = `${fmtN(ev.done)} of ${fmtN(ev.total)} (${pct}%)`;
+  } else if (ev.type === 'exif-complete') {
+    fillEl.className = 'progress-fill'; fillEl.style.width = '100%';
+    detailEl.textContent = 'EXIF complete';
+  } else if (ev.type === 'scan-saved') {
+    hideLoading();
+    if (ev.index === state.currentScan) loadAllData();
+  } else if (ev.type === 'exif-saved') {
+    hideLoading();
+    if (ev.index === state.currentScan) loadAllData();
+  } else if (ev.type === 'error') {
+    hideLoading();
+    phaseEl.textContent = '⚠ ' + ev.message;
+  }
+}
+
+function showLoading(phase = 'Starting…', indeterminate = true) {
+  const fill = document.getElementById('progress-fill');
+  if (indeterminate) {
+    fill.className = 'progress-fill indeterminate';
+    fill.style.width = '';
+  } else {
+    fill.style.transition = 'none';
+    fill.className = 'progress-fill';
+    fill.style.width = '0%';
+    fill.offsetWidth; // force reflow before re-enabling transition
+    fill.style.transition = '';
+  }
+  document.getElementById('progress-phase').textContent = phase;
+  document.getElementById('progress-detail').textContent = '';
+  document.getElementById('loading').classList.remove('hidden');
+}
+function hideLoading() { document.getElementById('loading').classList.add('hidden'); }
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+document.querySelectorAll('.tabnav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tabnav-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.activeTab = btn.dataset.tab;
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById(`panel-${state.activeTab}`).classList.add('active');
+    window.scrollTo(0, 0);
+    if (state.activeTab !== 'timeline') {
+      document.getElementById('timeline-scrubber').classList.add('hidden');
+    } else if (state.tlView === 'timeline' && state.tlGroups.length) {
+      document.getElementById('timeline-scrubber').classList.remove('hidden');
+    }
+    if (state.activeTab !== 'dups') document.getElementById('fab').classList.add('hidden');
+    else updateFab();
+  });
+});
+
+// ── Config + data loading ─────────────────────────────────────────────────────
+async function loadConfig() {
+  state.scans = await api('GET', '/api/config');
+  const sel = document.getElementById('scan-select');
+  sel.innerHTML = state.scans.map((s, i) =>
+    `<option value="${i}">${esc(s.name)}${s.cachedAt ? '' : ' (no cache)'}</option>`
+  ).join('');
+  sel.addEventListener('change', () => { state.currentScan = parseInt(sel.value); resetDecisions(); loadAllData(); });
+  resetDecisions();
+  loadAllData();
+}
+
+function resetDecisions() {
+  state.dupDecisions = { confirmed: {}, nameOnly: {} };
+  state.dupDeletedPaths = new Set();
+  state.dupExpandedPreviews = new Set();
+  state.dupActiveExts = null;
+  updateFab();
+}
+
+async function loadAllData() {
+  const i = state.currentScan;
+  const scan = state.scans[i];
+  state.dupRoots = scan?.roots ?? [];
+
+  const [disk, dups, photos] = await Promise.all([
+    api('GET', `/api/disk/${i}`).catch(() => null),
+    api('GET', `/api/dups/${i}`).catch(() => null),
+    api('GET', `/api/photos/${i}`).catch(() => null),
+  ]);
+  state.diskData   = disk;
+  state.dupsData   = dups;
+
+  state.tlPhotos   = photos?.photos ?? photos?.photoFiles ?? [];
+  state.tlHasExif  = photos?.photos != null && photos.photos.length > 0;
+
+  updateStatusText();
+  renderDisk();
+  renderDups();
+  renderTimeline();
+}
+
+function updateStatusText() {
+  const scan = state.scans[state.currentScan];
+  const el = document.getElementById('status-text');
+  if (!scan?.cachedAt) { el.textContent = 'Not yet scanned'; return; }
+  const ago = fmtAgo(new Date(scan.cachedAt));
+  el.textContent = `${fmtN(scan.fileCount)} files · scanned ${ago}`;
+}
+
+// ── Scan + EXIF buttons ───────────────────────────────────────────────────────
+document.getElementById('btn-scan').addEventListener('click', async () => {
+  showLoading('Starting filesystem walk…');
+  document.getElementById('btn-scan').disabled = true;
+  try { await api('POST', `/api/scan/${state.currentScan}`); }
+  catch (e) { hideLoading(); alert('Scan failed: ' + e.message); }
+  finally { document.getElementById('btn-scan').disabled = false; }
+});
+
+document.getElementById('btn-exiftool').addEventListener('click', async () => {
+  showLoading('Queuing EXIF scan…', false);
+  document.getElementById('btn-exiftool').disabled = true;
+  try { await api('POST', `/api/exiftool/${state.currentScan}`); }
+  catch (e) { hideLoading(); alert('EXIF scan failed: ' + e.message); }
+  finally { document.getElementById('btn-exiftool').disabled = false; }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DISK SPACE
+// ══════════════════════════════════════════════════════════════════════════════
+function renderDisk() {
+  const data = state.diskData;
+  document.getElementById('disk-empty').style.display   = data ? 'none' : '';
+  document.getElementById('disk-content').style.display = data ? '' : 'none';
+  if (!data) return;
+
+  const totalSize  = data.diskTrees.reduce((s,t) => s + t.size, 0);
+  const totalFiles = data.diskTrees.reduce((s,t) => s + t.fileCount, 0);
+  state.diskRootSize = totalSize;
+
+  document.getElementById('disk-stats-row').innerHTML = [
+    ['Total Size', fmtSize(totalSize)],
+    ['Files',      fmtN(totalFiles)],
+    ['Roots',      data.diskTrees.length],
+    ['Scanned',    new Date(data.scannedAt).toLocaleDateString()],
+  ].map(([lbl, val]) => `<div class="stat"><div class="stat-val">${val}</div><div class="stat-lbl">${lbl}</div></div>`).join('');
+
+  // Virtual root that wraps all trees
+  const virtualRoot = {
+    name: '/', path: '/', size: totalSize, fileCount: totalFiles,
+    children: Object.fromEntries(data.diskTrees.map(t => [t.name, t]))
+  };
+  state.diskNav = [virtualRoot];
+  renderDiskTable();
+}
+
+function renderDiskTable() {
+  const node       = state.diskNav[state.diskNav.length - 1];
+  const parentSize = state.diskNav.length > 1 ? state.diskNav[state.diskNav.length - 2].size : node.size;
+  const rootSize   = state.diskRootSize;
+
+  // Breadcrumb
+  document.getElementById('disk-breadcrumb').innerHTML = state.diskNav.map((n, i) => {
+    const isLast = i === state.diskNav.length - 1;
+    const sep = i > 0 ? '<span class="crumb-sep"> › </span>' : '';
+    if (isLast) return `${sep}<span class="crumb current">${esc(n.name)}</span>`;
+    return `${sep}<span class="crumb" data-nav="${i}">${esc(n.name)}</span>`;
+  }).join('');
+  document.querySelectorAll('.disk-breadcrumb [data-nav]').forEach(el => {
+    el.addEventListener('click', () => {
+      state.diskNav = state.diskNav.slice(0, parseInt(el.dataset.nav) + 1);
+      renderDiskTable();
+    });
+  });
+
+  const children = Object.values(node.children ?? {}).sort((a, b) => b.size - a.size);
+  const tbody = document.getElementById('disk-tbody');
+  tbody.innerHTML = '';
+
+  children.forEach(child => {
+    const hasChildren = child.children && Object.keys(child.children).length > 0;
+    const pctParent = parentSize > 0 ? child.size / parentSize * 100 : 0;
+    const pctRoot   = rootSize   > 0 ? child.size / rootSize   * 100 : 0;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><div class="name-cell">
+        <span class="name-icon">${hasChildren ? '📁' : '📄'}</span>
+        <span class="${hasChildren ? 'name-link' : 'not-dir'}">${esc(child.name)}</span>
+      </div></td>
+      <td style="text-align:right;white-space:nowrap">${fmtSize(child.size)}</td>
+      <td style="text-align:right;color:var(--text-dim)">${fmtN(child.fileCount)}</td>
+      <td class="bar-cell"><div class="bar-wrap">
+        <div class="bar-track"><div class="bar-fill-parent" style="width:${Math.max(.5,pctParent)}%"></div></div>
+        <div class="bar-track"><div class="bar-fill-root"   style="width:${Math.max(.5,pctRoot)}%"></div></div>
+        <div class="bar-labels"><span>${pctParent.toFixed(1)}%</span><span>${pctRoot.toFixed(1)}%</span></div>
+      </div></td>
+    `;
+    if (hasChildren) {
+      tr.querySelector('.name-link').addEventListener('click', () => {
+        state.diskNav.push(child);
+        renderDiskTable();
+      });
+    }
+    tbody.appendChild(tr);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DUPLICATES  (ported from findDupFiles, dark-themed)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Map isCloudStored → thumbnails: cloud-stored roots get no auto-thumbnails
+function thumbnailsEnabled(filePath) {
+  let best = null;
+  for (const r of state.dupRoots) {
+    const prefix = r.path.endsWith('/') ? r.path : r.path + '/';
+    if (filePath.startsWith(prefix) || filePath === r.path) {
+      if (!best || r.path.length > best.path.length) best = r;
+    }
+  }
+  return best ? !best.isCloudStored : true;
+}
+
+function renderDups() {
+  const data = state.dupsData;
+  document.getElementById('dups-empty').style.display   = data ? 'none' : '';
+  document.getElementById('dups-content').style.display = data ? '' : 'none';
+  if (!data) return;
+
+  // Attach group counts to sub-tab labels
+  const conf = data.dupGroups.confirmed ?? [];
+  const name = data.dupGroups.nameOnly  ?? [];
+  state._dups = { confirmed: conf, nameOnly: name, scannedAt: data.scannedAt };
+  renderDupGroups();
+}
+
+function renderDupGroups() {
+  const d = state._dups;
+  if (!d) return;
+  const groups = d[state.dupSubtab] ?? [];
+
+  document.getElementById('count-confirmed').textContent = (d.confirmed?.length ?? 0);
+  document.getElementById('count-nameOnly').textContent  = (d.nameOnly?.length  ?? 0);
+  renderDupSavings();
+  renderDupFilterBar();
+
+  const container = document.getElementById('dups-groups-container');
+  let order = groups.map((_,i) => i).filter(i => dupGroupMatchesFilter(groups[i]));
+  if (state.dupSortBySize) {
+    order.sort((a,b) => Math.max(...groups[b].files.map(f=>f.size??0)) - Math.max(...groups[a].files.map(f=>f.size??0)));
+  }
+
+  if (!order.length) {
+    container.innerHTML = `<div class="empty-state" style="min-height:40vh">
+      <h2>${groups.length ? 'No matches for current filter' : (state.dupSubtab==='confirmed' ? 'No confirmed duplicates' : 'No name-only matches')}</h2>
+    </div>`;
+    return;
+  }
+  container.innerHTML = order.map(i => renderDupGroup(groups[i], state.dupSubtab, i)).join('');
+
+  // Summary bar
+  const sumEl = document.getElementById('dups-summary');
+  if (d.scannedAt) {
+    const t = new Date(d.scannedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});
+    sumEl.innerHTML = `<span>Last scanned: <strong>${esc(t)}</strong></span>`;
+    sumEl.classList.remove('hidden');
+  } else { sumEl.classList.add('hidden'); }
+}
+
+function dupGroupMatchesFilter(group) {
+  if (!state.dupActiveExts) return true;
+  if (state.dupActiveExts.size === 0) return false;
+  return group.files.some(f => state.dupActiveExts.has(fileExt(f.path)));
+}
+
+function calcDupSavings(tab) {
+  let s = 0;
+  for (const g of (state._dups?.[tab] ?? [])) {
+    if (!dupGroupMatchesFilter(g)) continue;
+    const sizes = g.files.map(f => f.size ?? 0);
+    s += sizes.reduce((a,b) => a+b, 0) - Math.max(...sizes);
+  }
+  return s;
+}
+
+function renderDupSavings() {
+  const cs = calcDupSavings('confirmed');
+  const ns = calcDupSavings('nameOnly');
+  document.getElementById('savings-confirmed').textContent = cs > 0 ? ` · ${fmtSize(cs)}` : '';
+  document.getElementById('savings-nameOnly').textContent  = ns > 0 ? ` · ${fmtSize(ns)}`  : '';
+}
+
+function dupExtCounts() {
+  const counts = new Map();
+  const other = state.dupSubtab === 'confirmed' ? 'nameOnly' : 'confirmed';
+  for (const g of (state._dups?.[other] ?? [])) g.files.forEach(f => { const e = fileExt(f.path); if (e) counts.set(e, counts.get(e) ?? 0); });
+  for (const g of (state._dups?.[state.dupSubtab] ?? [])) {
+    const exts = new Set(g.files.map(f => fileExt(f.path)).filter(Boolean));
+    exts.forEach(e => counts.set(e, (counts.get(e) ?? 0) + 1));
+  }
+  return counts;
+}
+
+function renderDupFilterBar() {
+  const counts = dupExtCounts();
+  const bar = document.getElementById('dups-filter-bar');
+  if (counts.size <= 1) { bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+  const noFilter = state.dupActiveExts === null;
+  const sorted = [...counts.entries()].sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0]));
+  document.getElementById('filter-chips').innerHTML = sorted.map(([ext, count]) => {
+    const active = noFilter || state.dupActiveExts.has(ext);
+    return `<button class="ext-chip${active?' active':''}" data-ext="${esc(ext)}">.${esc(ext)}${count?` <span class="chip-count">${count}</span>`:''}</button>`;
+  }).join('');
+  document.querySelectorAll('.ext-chip').forEach(el => {
+    el.addEventListener('click', () => toggleDupExt(el.dataset.ext));
+  });
+  document.getElementById('filter-all').style.fontWeight   = noFilter ? '700' : '';
+  document.getElementById('filter-clear').style.fontWeight = state.dupActiveExts?.size === 0 ? '700' : '';
+}
+
+function toggleDupExt(ext) {
+  if (state.dupActiveExts === null) {
+    state.dupActiveExts = new Set(dupExtCounts().keys());
+    state.dupActiveExts.delete(ext);
+  } else {
+    if (state.dupActiveExts.has(ext)) state.dupActiveExts.delete(ext);
+    else {
+      state.dupActiveExts.add(ext);
+      if (state.dupActiveExts.size >= dupExtCounts().size) state.dupActiveExts = null;
+    }
+  }
+  renderDupFilterBar();
+  renderDupGroups();
+}
+
+document.getElementById('filter-all').addEventListener('click', () => { state.dupActiveExts = null; renderDupFilterBar(); renderDupGroups(); });
+document.getElementById('filter-clear').addEventListener('click', () => { state.dupActiveExts = new Set(); renderDupFilterBar(); renderDupGroups(); });
+document.getElementById('filter-pics-videos').addEventListener('click', () => {
+  const av = dupExtCounts();
+  const target = new Set([...IMAGE_EXTS, ...VIDEO_EXTS]);
+  state.dupActiveExts = new Set([...av.keys()].filter(e => target.has(e)));
+  if (!state.dupActiveExts.size) state.dupActiveExts = null;
+  renderDupFilterBar();
+  renderDupGroups();
+});
+
+function dupGetDecision(tab, idx) { return state.dupDecisions[tab]?.[idx]; }
+function dupIsMarkedForDelete(tab, idx, fi) { return dupGetDecision(tab, idx)?.deleteIndices.has(fi) ?? false; }
+function dupIsResolved(tab, idx) { const d = dupGetDecision(tab, idx); return d ? (d.skip || d.deleteIndices.size > 0) : false; }
+
+function dupFilesToDeleteInfo() {
+  const result = [];
+  for (const tab of ['confirmed','nameOnly']) {
+    for (const [idxStr, d] of Object.entries(state.dupDecisions[tab])) {
+      if (!d || d.skip || !d.deleteIndices.size) continue;
+      const group = state._dups?.[tab]?.[parseInt(idxStr)];
+      if (!group) continue;
+      group.files.forEach((f, fi) => {
+        if (d.deleteIndices.has(fi) && !state.dupDeletedPaths.has(f.path))
+          result.push({ path: f.path, size: f.size ?? 0 });
+      });
+    }
+  }
+  return result;
+}
+
+function updateFab() {
+  if (state.activeTab !== 'dups') return;
+  const info = dupFilesToDeleteInfo();
+  const total = info.reduce((s,f) => s+f.size, 0);
+  document.getElementById('delete-count').textContent = info.length;
+  document.getElementById('delete-size').textContent  = info.length > 0 ? ` · ${fmtSize(total)}` : '';
+  document.getElementById('fab').classList.toggle('hidden', info.length === 0);
+}
+
+function renderDupGroup(group, tab, idx) {
+  const resolved = dupIsResolved(tab, idx);
+  const d = dupGetDecision(tab, idx);
+
+  const filesHtml = group.files.map((file, fi) => {
+    const ext  = fileExt(file.path);
+    const gone = state.dupDeletedPaths.has(file.path);
+    const marked = !gone && dupIsMarkedForDelete(tab, idx, fi);
+    const previewKey = `${tab}-${idx}-${fi}`;
+    const expanded = state.dupExpandedPreviews.has(previewKey);
+    const thumbs = thumbnailsEnabled(file.path);
+    const showBox = !gone && (
+      (IMAGE_EXTS.has(ext) && (thumbs || expanded)) ||
+      VIDEO_EXTS.has(ext) || AUDIO_EXTS.has(ext)
+    );
+    const canExpand = IMAGE_EXTS.has(ext) && !thumbs && !gone;
+    const url = `/api/preview?path=${encodeURIComponent(file.path)}`;
+    let previewContent = '';
+    if (showBox) {
+      let inner;
+      if (IMAGE_EXTS.has(ext)) inner = `<img src="${url}" loading="lazy" alt="">`;
+      else if (VIDEO_EXTS.has(ext)) inner = `<video src="${url}" controls preload="none"></video>`;
+      else if (AUDIO_EXTS.has(ext)) inner = `<audio src="${url}" controls preload="none"></audio>`;
+      else inner = `<div class="preview-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>`;
+      previewContent = `<div class="file-preview">${inner}</div>`;
+    }
+    const previewToggle = canExpand
+      ? `<button class="preview-toggle-btn${expanded?' active':''}" data-action="preview" data-tab="${tab}" data-idx="${idx}" data-fi="${fi}">${expanded?'Hide preview':'👁 Preview'}</button>` : '';
+    const deleteBtn = gone
+      ? `<span class="deleted-tag">Deleted</span>`
+      : `<button class="delete-btn${marked?' active':''}" data-action="delete" data-tab="${tab}" data-idx="${idx}" data-fi="${fi}">${marked?'✕ Will delete':'🗑 Delete'}</button>`;
+    const cloudTag = file.isCloudStored ? `<span class="cloud-tag">☁</span>` : '';
+
+    return `<div class="file-card${marked?' to-delete':''}">
+      ${previewContent}
+      <div class="card-row">
+        <span class="ext-badge">${esc(ext||'?')}</span>
+        <div class="file-info">
+          <div class="file-name" title="${esc(file.path)}">${esc(fileName(file.path))}</div>
+          <div class="file-dir"  title="${esc(file.path)}">${esc(fileDir(file.path))}</div>
+          <div class="file-meta">
+            <span>${file.mtime ? file.mtime.slice(0,10) : ''}</span>
+            <span>${fmtSize(file.size)}</span>
+            ${gone ? '<span class="deleted-tag">Deleted</span>' : ''}
+            ${cloudTag}
+          </div>
+        </div>
+        <div class="file-actions">${previewToggle}${deleteBtn}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="group${resolved?' resolved':''}" id="dup-group-${tab}-${idx}">
+    <div class="files-grid">${filesHtml}</div>
+    <div class="group-footer">
+      <button class="skip-btn${d?.skip?' active':''}" data-action="skip" data-tab="${tab}" data-idx="${idx}">${d?.skip?'⊘ Skipped':'Skip'}</button>
+      ${resolved?`<button class="undo-btn" data-action="undo" data-tab="${tab}" data-idx="${idx}">Undo</button>`:''}
+      ${tab==='nameOnly'?`<span class="name-only-label">name match only</span>`:''}
+      ${group.hasUnreadable?`<span class="unreadable-label">☁ unreadable files</span>`:''}
+    </div>
+  </div>`;
+}
+
+function rerenderDupGroup(tab, idx) {
+  const el = document.getElementById(`dup-group-${tab}-${idx}`);
+  if (!el) return;
+  el.outerHTML = renderDupGroup(state._dups[tab][idx], tab, idx);
+}
+
+// Event delegation for group actions
+document.getElementById('dups-groups-container').addEventListener('click', e => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const { action, tab, idx: idxStr, fi: fiStr } = btn.dataset;
+  const idx = parseInt(idxStr), fi = parseInt(fiStr);
+
+  if (action === 'delete') {
+    let d = state.dupDecisions[tab][idx];
+    if (!d) { d = { skip: false, deleteIndices: new Set() }; state.dupDecisions[tab][idx] = d; }
+    d.skip = false;
+    if (d.deleteIndices.has(fi)) { d.deleteIndices.delete(fi); if (!d.deleteIndices.size) delete state.dupDecisions[tab][idx]; }
+    else d.deleteIndices.add(fi);
+  } else if (action === 'skip') {
+    if (state.dupDecisions[tab][idx]?.skip) delete state.dupDecisions[tab][idx];
+    else state.dupDecisions[tab][idx] = { skip: true, deleteIndices: new Set() };
+  } else if (action === 'undo') {
+    delete state.dupDecisions[tab][idx];
+  } else if (action === 'preview') {
+    const key = `${tab}-${idx}-${fi}`;
+    if (state.dupExpandedPreviews.has(key)) state.dupExpandedPreviews.delete(key);
+    else state.dupExpandedPreviews.add(key);
+  }
+  rerenderDupGroup(tab, idx);
+  updateFab();
+});
+
+// Sub-tabs
+document.querySelectorAll('.dups-subtab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.dups-subtab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.dupSubtab = btn.dataset.dtab;
+    renderDupGroups();
+  });
+});
+
+// Sort toggle
+document.getElementById('dups-sort-btn').addEventListener('click', () => {
+  state.dupSortBySize = !state.dupSortBySize;
+  document.getElementById('dups-sort-btn').classList.toggle('active', state.dupSortBySize);
+  renderDupGroups();
+});
+
+// Delete modal
+document.getElementById('review-btn').addEventListener('click', () => {
+  const info = dupFilesToDeleteInfo();
+  if (!info.length) return;
+  document.getElementById('modal-title').textContent = `Delete ${info.length} file${info.length!==1?'s':''}?`;
+  document.getElementById('modal-file-list').innerHTML = info.map(f => `<div class="modal-file-item">${esc(f.path)}</div>`).join('');
+  document.getElementById('modal-confirm').disabled = false;
+  document.getElementById('modal-confirm').textContent = 'Delete Files';
+  document.getElementById('modal-cancel').textContent = 'Cancel';
+  document.getElementById('modal-backdrop').classList.add('open');
+});
+document.getElementById('modal-cancel').addEventListener('click', () => document.getElementById('modal-backdrop').classList.remove('open'));
+document.getElementById('modal-backdrop').addEventListener('click', e => { if (e.target === e.currentTarget) document.getElementById('modal-backdrop').classList.remove('open'); });
+
+document.getElementById('modal-confirm').addEventListener('click', async () => {
+  const paths = dupFilesToDeleteInfo().map(f => f.path);
+  const confirmBtn = document.getElementById('modal-confirm');
+  confirmBtn.disabled = true;
+  confirmBtn.innerHTML = '<span class="spinner"></span>Deleting…';
+  try {
+    const { results } = await api('POST', '/api/delete', { paths });
+    const items = document.querySelectorAll('.modal-file-item');
+    results.forEach((r, i) => {
+      const el = items[i]; if (!el) return;
+      el.classList.add(r.ok ? 'ok' : 'fail');
+      el.textContent = (r.ok ? '✓ ' : '✗ ') + r.path + (r.ok ? '' : ' — ' + r.error);
+      if (r.ok) state.dupDeletedPaths.add(r.path);
+    });
+    // Re-render affected groups
+    for (const tab of ['confirmed','nameOnly']) {
+      for (const idxStr of Object.keys(state.dupDecisions[tab])) {
+        const idx = parseInt(idxStr);
+        if (state._dups?.[tab]?.[idx]?.files.some(f => state.dupDeletedPaths.has(f.path))) rerenderDupGroup(tab, idx);
+      }
+    }
+    updateFab();
+    const failed = results.filter(r => !r.ok).length;
+    confirmBtn.textContent = failed ? `Done (${failed} failed)` : 'Done ✓';
+    document.getElementById('modal-cancel').textContent = 'Close';
+  } catch (e) {
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = 'Retry';
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TIMELINE  (ported from photoTimelineViewer)
+// ══════════════════════════════════════════════════════════════════════════════
+
+function renderTimeline() {
+  const hasData = state.tlPhotos.length > 0;
+  document.getElementById('tl-empty').style.display   = hasData ? 'none' : '';
+  document.getElementById('tl-content').style.display = hasData ? '' : 'none';
+  if (!hasData) return;
+
+  document.getElementById('btn-exiftool').textContent = state.tlHasExif ? 'Re-run EXIF Scan' : 'Run EXIF Scan';
+  document.getElementById('exif-status').textContent = state.tlHasExif
+    ? `${fmtN(state.tlPhotos.length)} photos with EXIF`
+    : `${fmtN(state.tlPhotos.length)} media files — no EXIF yet`;
+
+  // Only show month/scrubber controls if we have dates
+  const hasDates = state.tlPhotos.some(p => p.date);
+  document.getElementById('month-btn').style.display   = (state.tlView === 'timeline' && hasDates) ? '' : 'none';
+  document.getElementById('date-chip').classList.toggle('hidden', state.tlView !== 'timeline' || !hasDates);
+
+  if (state.tlView === 'albums') {
+    loadAlbums(null);
+  } else {
+    renderTimelineGrid();
+  }
+}
+
+// Grouping (month → day → photos)
+function groupPhotos(photos) {
+  const monthMap = new Map();
+  for (const photo of photos) {
+    let mk = 'no-date', dk = 'no-date';
+    if (photo.date) {
+      const d = new Date(photo.date);
+      if (!isNaN(d)) {
+        mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+        dk = `${mk}-${String(d.getDate()).padStart(2,'0')}`;
+      }
+    }
+    if (!monthMap.has(mk)) monthMap.set(mk, new Map());
+    const dm = monthMap.get(mk);
+    if (!dm.has(dk)) dm.set(dk, []);
+    dm.get(dk).push(photo);
+  }
+  const groups = [];
+  for (const [mk, dm] of monthMap) {
+    const days = [];
+    for (const [dk, ps] of dm) {
+      const dl = dk === 'no-date' ? 'Unknown date' : fmtDayKey(dk);
+      days.push({ dayKey: dk, dayLabel: dl, photos: ps });
+    }
+    days.sort((a,b) => b.dayKey.localeCompare(a.dayKey));
+    const count = days.reduce((s,d) => s+d.photos.length, 0);
+    const ml = mk === 'no-date' ? 'Unknown date' : fmtMonthKey(mk);
+    groups.push({ monthKey: mk, monthLabel: ml, count, days });
+  }
+  groups.sort((a,b) => b.monthKey.localeCompare(a.monthKey));
+  return groups;
+}
+
+// Justified layout (from photoTimelineViewer)
+const TARGET_ROW_H = 220, TL_GAP = 2;
+
+function computeRows(photos, containerW) {
+  const rows = []; let row = [], rowAspectSum = 0;
+  for (const photo of photos) {
+    const aspect = (photo.width && photo.height) ? photo.width / photo.height
+      : (VIDEO_EXTS.has(fileExt(photo.path)) ? 16/9 : 4/3);
+    rowAspectSum += aspect;
+    row.push({ photo, aspect });
+    const naturalW = rowAspectSum * TARGET_ROW_H + TL_GAP * (row.length - 1);
+    if (naturalW >= containerW) {
+      const available = containerW - TL_GAP * (row.length - 1);
+      const rh = Math.round(TARGET_ROW_H * (available / (rowAspectSum * TARGET_ROW_H)));
+      rows.push(row.map(({photo, aspect}) => ({ photo, width: Math.round(aspect * rh), height: rh })));
+      row = []; rowAspectSum = 0;
+    }
+  }
+  if (row.length) rows.push(row.map(({photo, aspect}) => ({ photo, width: Math.round(aspect * TARGET_ROW_H), height: TARGET_ROW_H })));
+  return rows;
+}
+
+// Lazy loading
+let tlObserver = null, tlResumeTimer = null;
+function setupLazyLoad() {
+  if (tlObserver) tlObserver.disconnect();
+  tlObserver = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      const el = e.target;
+      if (el.dataset.src) { el.src = el.dataset.src; delete el.dataset.src; tlObserver.unobserve(el); }
+    }
+  }, { rootMargin: '400px' });
+}
+function tlObserve(img) { tlObserver?.observe(img); }
+function pauseLazyLoad() { clearTimeout(tlResumeTimer); tlObserver?.disconnect(); }
+function scheduleResume(delay = 400) { clearTimeout(tlResumeTimer); tlResumeTimer = setTimeout(resumeLazyLoad, delay); }
+function resumeLazyLoad() {
+  setupLazyLoad();
+  document.querySelectorAll('#tl-main img[data-src]').forEach(img => tlObserver.observe(img));
+}
+
+function renderTimelineGrid() {
+  const main = document.getElementById('tl-main');
+  main.innerHTML = '';
+
+  const photos = state.tlFilterDir
+    ? state.tlPhotos.filter(p => p.path.startsWith(state.tlFilterDir + '/') || p.path.startsWith(state.tlFilterDir + '\\'))
+    : state.tlPhotos;
+
+  if (!photos.length) {
+    main.innerHTML = `<div class="empty-state" style="min-height:60vh"><h2>${state.tlFilterDir ? 'No photos in this album' : 'No photos found'}</h2></div>`;
+    return;
+  }
+
+  state.tlGroups = groupPhotos(photos);
+  state.tlActiveMonth = state.tlGroups[0]?.monthKey ?? null;
+
+  setupLazyLoad();
+  const containerW = main.clientWidth || (window.innerWidth - 54);
+
+  for (const group of state.tlGroups) {
+    const sec = document.createElement('div');
+    sec.className = 'month-section';
+    sec.id = `tl-month-${group.monthKey}`;
+    sec.dataset.monthKey = group.monthKey;
+    const hdr = document.createElement('div');
+    hdr.className = 'month-header';
+    hdr.innerHTML = `${esc(group.monthLabel)} <span class="month-header-count">${fmtN(group.count)} photos</span>`;
+    sec.appendChild(hdr);
+
+    for (const day of group.days) {
+      const dl = document.createElement('div');
+      dl.className = 'day-label'; dl.textContent = day.dayLabel;
+      sec.appendChild(dl);
+
+      const rows = computeRows(day.photos, containerW);
+      for (const row of rows) {
+        const rowEl = document.createElement('div');
+        rowEl.className = 'photo-row';
+        for (const { photo, width, height } of row) rowEl.appendChild(makeTile(photo, width, height));
+        sec.appendChild(rowEl);
+      }
+    }
+    main.appendChild(sec);
+  }
+
+  updateScrollTracking();
+  requestAnimationFrame(buildScrubber);
+  buildPicker();
+  updateDateChip();
+  document.getElementById('timeline-scrubber').classList.toggle('hidden', state.activeTab !== 'timeline');
+}
+
+function makeTile(photo, width, height) {
+  const tile = document.createElement('div');
+  tile.className = 'tile';
+  tile.style.width = width + 'px'; tile.style.height = height + 'px';
+  tile.title = fileName(photo.path);
+
+  const isVideo = VIDEO_EXTS.has(fileExt(photo.path));
+  const d = new Date(photo.date);
+  const timeStr = photo.date && !isNaN(d) ? `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}` : '';
+
+  const img = document.createElement('img');
+  img.alt = '';
+  img.dataset.src = `/api/thumbnail?path=${encodeURIComponent(photo.path)}`;
+  img.onerror = function() {
+    this.style.display = 'none';
+    const ph = document.createElement('div');
+    ph.className = 'tile-placeholder'; ph.textContent = isVideo ? '▶' : '📷';
+    tile.prepend(ph);
+  };
+  tlObserve(img);
+  tile.appendChild(img);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'tile-overlay';
+  overlay.innerHTML = `<span class="tile-date">${esc(timeStr)}</span>`;
+  tile.appendChild(overlay);
+
+  if (isVideo) {
+    const badge = document.createElement('div');
+    badge.className = 'tile-video-badge'; badge.textContent = '▶';
+    tile.appendChild(badge);
+  }
+  if (photo.isCloudStored) {
+    const cb = document.createElement('div');
+    cb.className = 'tile-cloud'; cb.textContent = '☁';
+    tile.appendChild(cb);
+  }
+
+  tile.addEventListener('click', () => openLightbox(state.tlPhotos.indexOf(photo)));
+  return tile;
+}
+
+// Scroll tracking
+let tlRafPending = false;
+function updateScrollTracking() {
+  window.addEventListener('scroll', onTlScroll, { passive: true });
+  onTlScroll();
+}
+function onTlScroll() {
+  if (tlRafPending) return;
+  tlRafPending = true;
+  requestAnimationFrame(() => {
+    tlRafPending = false;
+    if (state.activeTab !== 'timeline') return;
+    const sections = document.querySelectorAll('.month-section');
+    const threshold = 52 + 40 + 20;
+    let active = null;
+    for (const s of sections) { if (s.getBoundingClientRect().top <= threshold) active = s.dataset.monthKey; else break; }
+    if (active && active !== state.tlActiveMonth) {
+      state.tlActiveMonth = active;
+      updateDateChip();
+      updatePickerActive();
+      updateScrubberActive();
+    }
+    updateScrubberHandle();
+  });
+}
+function updateDateChip() {
+  const chip = document.getElementById('date-chip');
+  if (!state.tlActiveMonth || state.tlView !== 'timeline') { chip.classList.add('hidden'); return; }
+  chip.textContent = fmtMonthKey(state.tlActiveMonth);
+  chip.classList.remove('hidden');
+}
+
+// Month picker
+function buildPicker() {
+  const el = document.getElementById('month-picker');
+  if (!state.tlGroups.length) { el.innerHTML = '<div style="color:var(--text-dim);font-size:13px">No photos loaded</div>'; return; }
+  const byYear = new Map();
+  for (const g of state.tlGroups) {
+    const yr = g.monthKey.split('-')[0];
+    if (!byYear.has(yr)) byYear.set(yr, []);
+    byYear.get(yr).push(g);
+  }
+  const withPhotos = new Set(state.tlGroups.map(g => g.monthKey));
+  let html = '';
+  for (const [yr, gs] of byYear) {
+    html += `<div class="picker-year">${esc(yr)}</div><div class="picker-months">`;
+    const inYear = new Map(gs.map(g => [g.monthKey, g]));
+    for (let m = 1; m <= 12; m++) {
+      const mk = `${yr}-${String(m).padStart(2,'00')}`;
+      const has = withPhotos.has(mk);
+      const isActive = mk === state.tlActiveMonth;
+      if (has) html += `<div class="picker-month ${isActive?'active':'has-photos'}" data-key="${esc(mk)}">${MONTHS[m-1].slice(0,3)}</div>`;
+      else      html += `<div class="picker-month">${MONTHS[m-1].slice(0,3)}</div>`;
+    }
+    html += '</div>';
+  }
+  el.innerHTML = html;
+  el.querySelectorAll('[data-key]').forEach(el => el.addEventListener('click', () => jumpToMonth(el.dataset.key)));
+}
+function updatePickerActive() {
+  document.querySelectorAll('#month-picker .picker-month').forEach(el => {
+    el.classList.toggle('active', el.dataset.key === state.tlActiveMonth);
+    if (el.dataset.key && !el.classList.contains('active')) el.classList.add('has-photos');
+  });
+}
+function togglePicker() {
+  state.tlPickerOpen = !state.tlPickerOpen;
+  document.getElementById('month-picker').classList.toggle('hidden', !state.tlPickerOpen);
+  if (state.tlPickerOpen) buildPicker();
+}
+function jumpToMonth(key) {
+  const sec = document.getElementById(`tl-month-${key}`);
+  if (sec) window.scrollTo({ top: sec.getBoundingClientRect().top + window.scrollY - 52 - 40 - 8, behavior: 'instant' });
+  setTimeout(() => { state.tlPickerOpen = false; document.getElementById('month-picker').classList.add('hidden'); }, 300);
+}
+document.addEventListener('click', e => {
+  if (!state.tlPickerOpen) return;
+  const picker = document.getElementById('month-picker');
+  const btn = document.getElementById('month-btn');
+  if (!picker.contains(e.target) && e.target !== btn) { state.tlPickerOpen = false; picker.classList.add('hidden'); }
+});
+document.getElementById('month-btn').addEventListener('click', togglePicker);
+
+// Scrubber
+const SCRUB_PAD = 8;
+function scrubberRailH() { return document.getElementById('timeline-scrubber').offsetHeight - SCRUB_PAD * 2; }
+function scrollFrac() { const m = document.body.scrollHeight - window.innerHeight; return m > 0 ? Math.min(1, window.scrollY / m) : 0; }
+
+function buildScrubber() {
+  const scrubber = document.getElementById('timeline-scrubber');
+  scrubber.querySelectorAll('.scrubber-year').forEach(el => el.remove());
+  if (state.tlView !== 'timeline' || !state.tlGroups.length || state.activeTab !== 'timeline') {
+    scrubber.classList.add('hidden'); return;
+  }
+  scrubber.classList.remove('hidden');
+  const maxScroll = Math.max(1, document.body.scrollHeight - window.innerHeight);
+  const railH = scrubberRailH();
+  const years = [...new Set(state.tlGroups.map(g => g.monthKey.split('-')[0]))];
+  for (const year of years) {
+    const firstGroup = state.tlGroups.find(g => g.monthKey.startsWith(year + '-'));
+    if (!firstGroup) continue;
+    const sec = document.getElementById(`tl-month-${firstGroup.monthKey}`);
+    if (!sec) continue;
+    const scrollPos = Math.max(0, sec.offsetTop - 52 - 40);
+    const frac = Math.min(1, scrollPos / maxScroll);
+    const label = document.createElement('div');
+    label.className = 'scrubber-year';
+    label.textContent = year;
+    label.dataset.year = year;
+    label.style.top = (SCRUB_PAD + frac * railH) + 'px';
+    label.addEventListener('click', e => { e.stopPropagation(); window.scrollTo({ top: scrollPos, behavior: 'instant' }); });
+    scrubber.appendChild(label);
+  }
+  updateScrubberHandle();
+  updateScrubberActive();
+}
+
+function updateScrubberHandle() {
+  const h = document.getElementById('scrubber-handle');
+  if (h) h.style.top = (SCRUB_PAD + scrollFrac() * scrubberRailH()) + 'px';
+}
+function updateScrubberActive() {
+  const ay = state.tlActiveMonth?.split('-')[0];
+  document.querySelectorAll('.scrubber-year').forEach(el => el.classList.toggle('active', el.dataset.year === ay));
+}
+
+function setupScrubberDrag() {
+  const scrubber = document.getElementById('timeline-scrubber');
+  let dragging = false;
+  function posToScroll(clientY) {
+    const rect = scrubber.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (clientY - rect.top - SCRUB_PAD) / scrubberRailH()));
+    return frac * (document.body.scrollHeight - window.innerHeight);
+  }
+  scrubber.addEventListener('mousedown', e => {
+    dragging = true; scrubber.classList.add('dragging'); pauseLazyLoad();
+    window.scrollTo(0, posToScroll(e.clientY)); e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return; pauseLazyLoad(); window.scrollTo(0, posToScroll(e.clientY)); scheduleResume(600);
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return; dragging = false;
+    document.getElementById('timeline-scrubber').classList.remove('dragging'); scheduleResume(400);
+  });
+  scrubber.addEventListener('touchstart', e => {
+    dragging = true; scrubber.classList.add('dragging'); pauseLazyLoad();
+    window.scrollTo(0, posToScroll(e.touches[0].clientY)); e.preventDefault();
+  }, { passive: false });
+  document.addEventListener('touchmove', e => {
+    if (!dragging) return; pauseLazyLoad(); window.scrollTo(0, posToScroll(e.touches[0].clientY)); scheduleResume(600); e.preventDefault();
+  }, { passive: false });
+  document.addEventListener('touchend', () => {
+    dragging = false; document.getElementById('timeline-scrubber').classList.remove('dragging'); scheduleResume(400);
+  });
+}
+
+// Resize → re-layout
+let tlResizeTimer = null;
+new ResizeObserver(() => {
+  clearTimeout(tlResizeTimer);
+  tlResizeTimer = setTimeout(() => {
+    if (state.activeTab === 'timeline' && state.tlView === 'timeline' && state.tlPhotos.length) renderTimelineGrid();
+  }, 200);
+}).observe(document.getElementById('tl-main'));
+
+// View toggle
+document.querySelectorAll('.vtbtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const view = btn.dataset.view;
+    document.querySelectorAll('.vtbtn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.tlView = view;
+    state.tlFilterDir = null;
+    if (view === 'albums') {
+      state.tlAlbumBreadcrumb = [{ name: 'Albums', path: null }];
+      renderTlBreadcrumb();
+      loadAlbums(null);
+      document.getElementById('timeline-scrubber').classList.add('hidden');
+      document.getElementById('month-btn').style.display = 'none';
+      document.getElementById('date-chip').classList.add('hidden');
+    } else {
+      state.tlAlbumBreadcrumb = [];
+      renderTlBreadcrumb();
+      renderTimelineGrid();
+      document.getElementById('month-btn').style.display = '';
+    }
+  });
+});
+
+// Albums
+async function loadAlbums(dir) {
+  const main = document.getElementById('tl-main');
+  const url = `/api/albums/${state.currentScan}` + (dir ? `?dir=${encodeURIComponent(dir)}` : '');
+  try {
+    const { albums } = await api('GET', url);
+    main.innerHTML = '';
+    if (!albums.length) {
+      main.innerHTML = '<div class="empty-state" style="min-height:50vh"><h2>No sub-albums found</h2></div>';
+      return;
+    }
+    const grid = document.createElement('div');
+    grid.className = 'albums-grid';
+    for (const album of albums) grid.appendChild(makeAlbumCard(album));
+    main.appendChild(grid);
+  } catch (e) {
+    main.innerHTML = `<div class="empty-state" style="min-height:50vh"><h2>Could not load albums</h2><p>${esc(e.message)}</p></div>`;
+  }
+}
+
+function makeAlbumCard(album) {
+  const card = document.createElement('div');
+  card.className = 'album-card';
+  if (album.coverPhoto) {
+    const img = document.createElement('img');
+    img.src = `/api/thumbnail?path=${encodeURIComponent(album.coverPhoto)}`;
+    img.alt = album.name;
+    const noCover = document.createElement('div');
+    noCover.className = 'album-no-cover'; noCover.textContent = '🗂'; noCover.style.display = 'none';
+    img.onerror = () => { img.style.display = 'none'; noCover.style.display = 'flex'; };
+    card.appendChild(img); card.appendChild(noCover);
+  } else {
+    const nc = document.createElement('div');
+    nc.className = 'album-no-cover'; nc.textContent = '🗂';
+    card.appendChild(nc);
+  }
+  const info = document.createElement('div');
+  info.className = 'album-info';
+  info.innerHTML = `<div class="album-title">${esc(album.name)}</div><div class="album-subtitle">${fmtN(album.count)} items · ${esc(album.dateRange)}</div>`;
+  card.appendChild(info);
+  card.addEventListener('click', () => openAlbum(album));
+  return card;
+}
+
+function openAlbum(album) {
+  state.tlAlbumBreadcrumb.push({ name: album.name, path: album.path });
+  renderTlBreadcrumb();
+  if (album.hasSubAlbums) { loadAlbums(album.path); }
+  else {
+    state.tlView = 'timeline'; state.tlFilterDir = album.path;
+    document.querySelectorAll('.vtbtn').forEach(b => b.classList.toggle('active', b.dataset.view === 'timeline'));
+    renderTimelineGrid();
+  }
+}
+
+function renderTlBreadcrumb() {
+  const el = document.getElementById('tl-breadcrumb');
+  const bc = state.tlAlbumBreadcrumb;
+  if (!bc.length) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  el.innerHTML = bc.map((crumb, i) => {
+    const sep = i > 0 ? '<span class="crumb-sep"> › </span>' : '';
+    const isLast = i === bc.length - 1;
+    if (isLast) return `${sep}<span class="crumb current">${esc(crumb.name)}</span>`;
+    return `${sep}<span class="crumb" data-nav="${i}">${esc(crumb.name)}</span>`;
+  }).join('');
+  el.querySelectorAll('[data-nav]').forEach(el2 => {
+    el2.addEventListener('click', () => {
+      const idx = parseInt(el2.dataset.nav);
+      state.tlAlbumBreadcrumb = state.tlAlbumBreadcrumb.slice(0, idx + 1);
+      renderTlBreadcrumb();
+      const crumb = state.tlAlbumBreadcrumb[idx];
+      state.tlFilterDir = null;
+      state.tlView = 'albums';
+      document.querySelectorAll('.vtbtn').forEach(b => b.classList.toggle('active', b.dataset.view === 'albums'));
+      loadAlbums(crumb.path);
+    });
+  });
+}
+
+// Lightbox
+function openLightbox(index) {
+  state.tlLbIndex = index;
+  renderLightboxItem();
+  document.getElementById('lightbox').classList.remove('hidden');
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.add('hidden');
+  state.tlLbIndex = -1;
+  document.getElementById('lb-media').innerHTML = '';
+}
+function navigateLightbox(delta) {
+  const next = state.tlLbIndex + delta;
+  if (next < 0 || next >= state.tlPhotos.length) return;
+  state.tlLbIndex = next; renderLightboxItem();
+}
+function renderLightboxItem() {
+  const photo = state.tlPhotos[state.tlLbIndex];
+  if (!photo) return;
+  const isVideo = VIDEO_EXTS.has(fileExt(photo.path));
+  const mediaEl = document.getElementById('lb-media');
+  mediaEl.innerHTML = '<div class="lb-spinner"></div>';
+  const src = `/api/preview?path=${encodeURIComponent(photo.path)}`;
+  if (isVideo) {
+    const vid = document.createElement('video');
+    vid.controls = true; vid.preload = 'metadata'; vid.src = src;
+    mediaEl.innerHTML = ''; mediaEl.appendChild(vid);
+  } else {
+    const img = new Image(); img.src = src;
+    img.onload = () => { mediaEl.innerHTML = ''; mediaEl.appendChild(img); };
+    img.onerror = () => { mediaEl.innerHTML = '<div style="color:var(--text-dim);padding:20px">Failed to load</div>'; };
+  }
+  document.getElementById('lb-filename').textContent = fileName(photo.path);
+  document.getElementById('lb-date-display').textContent = photo.date ? fmtDatetime(photo.date) : '(no date)';
+  if (photo.date) document.getElementById('lb-date-input').value = photo.date.slice(0,16);
+  document.getElementById('lb-date-edit-form').style.display = 'none';
+  document.getElementById('lb-edit-btn').style.display = photo.date ? '' : 'none';
+  document.getElementById('lb-meta').textContent = [fmtSize(photo.size), fileExt(photo.path).toUpperCase()].filter(Boolean).join(' · ');
+  document.getElementById('lb-path').textContent = photo.path;
+  document.getElementById('lb-prev').classList.toggle('hidden', state.tlLbIndex === 0);
+  document.getElementById('lb-next').classList.toggle('hidden', state.tlLbIndex === state.tlPhotos.length - 1);
+  const saveBtn = document.getElementById('lb-date-save');
+  saveBtn.disabled = false; saveBtn.textContent = 'Save';
+}
+
+document.getElementById('lb-backdrop').addEventListener('click', closeLightbox);
+document.getElementById('lb-close').addEventListener('click', closeLightbox);
+document.getElementById('lb-prev').addEventListener('click', () => navigateLightbox(-1));
+document.getElementById('lb-next').addEventListener('click', () => navigateLightbox(1));
+document.getElementById('lightbox').addEventListener('wheel', e => e.preventDefault(), { passive: false });
+document.getElementById('lb-edit-btn').addEventListener('click', () => {
+  document.getElementById('lb-edit-btn').style.display = 'none';
+  document.getElementById('lb-date-edit-form').style.display = 'flex';
+  document.getElementById('lb-date-input').focus();
+});
+document.getElementById('lb-date-cancel').addEventListener('click', () => {
+  document.getElementById('lb-date-edit-form').style.display = 'none';
+  document.getElementById('lb-edit-btn').style.display = '';
+});
+document.getElementById('lb-date-save').addEventListener('click', async () => {
+  const photo = state.tlPhotos[state.tlLbIndex];
+  const val = document.getElementById('lb-date-input').value; if (!val) return;
+  const [datePart, timePart = '00:00'] = val.split('T');
+  const saveBtn = document.getElementById('lb-date-save');
+  saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+  try {
+    await api('POST', '/api/update-date', { filePath: photo.path, date: `${datePart} ${timePart}:00` });
+    photo.date = `${datePart}T${timePart}:00`;
+    document.getElementById('lb-date-display').textContent = fmtDatetime(photo.date);
+    document.getElementById('lb-date-edit-form').style.display = 'none';
+    document.getElementById('lb-edit-btn').style.display = '';
+    saveBtn.disabled = false; saveBtn.textContent = 'Save';
+    state.tlPhotos.sort((a,b) => (b.date||'').localeCompare(a.date||''));
+    closeLightbox(); renderTimelineGrid();
+  } catch (e) {
+    alert('Error: ' + e.message); saveBtn.disabled = false; saveBtn.textContent = 'Save';
+  }
+});
+
+document.addEventListener('keydown', e => {
+  if (!document.getElementById('lightbox').classList.contains('hidden')) {
+    if (document.getElementById('lb-date-edit-form').style.display !== 'none') {
+      if (e.key === 'Escape') { document.getElementById('lb-date-edit-form').style.display = 'none'; document.getElementById('lb-edit-btn').style.display = ''; }
+      return;
+    }
+    if (e.key === 'Escape') closeLightbox();
+    if (e.key === 'ArrowLeft') navigateLightbox(-1);
+    if (e.key === 'ArrowRight') navigateLightbox(1);
+    if ([' ','ArrowUp','ArrowDown','PageUp','PageDown'].includes(e.key)) e.preventDefault();
+  }
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+setupScrubberDrag();
+loadConfig();
+</script>
+</body>
+</html>

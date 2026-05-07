@@ -1,0 +1,30 @@
+{
+  "port": 3001,
+  "scans": [
+    {
+      "name": "Shutterfly",
+      "roots": [
+        {"path": "/mnt/c/Users/steve/AwsBackup/Pictures/Shutterfly Highlights", "isCloudStored": false}
+      ]
+    },
+    {
+      "name": "OneDrive",
+      "roots": [
+        { "path": "/mnt/c/Users/steve/OneDrive", "isCloudStored": true }
+      ]
+    },
+    {
+      "name": "AWS Backup",
+      "roots": [
+        { "path": "/mnt/c/Users/steve/AwsBackup", "isCloudStored": false }
+      ]
+    },
+    {
+      "name": "AWS + OneDrive (compare)",
+      "roots": [
+        { "path": "/mnt/c/Users/steve/AwsBackup", "isCloudStored": false },
+        { "path": "/mnt/c/Users/steve/OneDrive",  "isCloudStored": true }
+      ]
+    }
+  ]
+}
