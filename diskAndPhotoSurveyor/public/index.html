@@ -498,9 +498,10 @@ tr:hover td { background: rgba(255,255,255,.025); }
 
 <!-- ── Tab navigation ────────────────────────────────────────────────────── -->
 <div id="tabnav">
-  <button class="tabnav-btn active" data-tab="disk">💾 Disk Space</button>
+  <button class="tabnav-btn active" data-tab="timeline">📷 Timeline</button>
+  <button class="tabnav-btn" data-tab="albums">🗂 Albums</button>
+  <button class="tabnav-btn" data-tab="disk">💾 Disk Space</button>
   <button class="tabnav-btn" data-tab="dups">🔍 Duplicates</button>
-  <button class="tabnav-btn" data-tab="timeline">📷 Timeline</button>
 </div>
 
 <!-- ── Loading overlay ───────────────────────────────────────────────────── -->
@@ -513,7 +514,7 @@ tr:hover td { background: rgba(255,255,255,.025); }
 </div>
 
 <!-- ══════════════════════ DISK SPACE PANEL ══════════════════════════════ -->
-<div class="panel active" id="panel-disk">
+<div class="panel" id="panel-disk">
   <div id="disk-empty" class="empty-state">
     <h2>No scan data yet</h2>
     <p>Select a scan and click <strong>↻ Scan</strong> to analyse disk usage.</p>
@@ -561,25 +562,32 @@ tr:hover td { background: rgba(255,255,255,.025); }
 </div>
 
 <!-- ══════════════════════ TIMELINE PANEL ════════════════════════════════ -->
-<div class="panel" id="panel-timeline">
+<div class="panel active" id="panel-timeline">
   <div id="tl-empty" class="empty-state">
     <h2>No scan data yet</h2>
     <p>Select a scan and click <strong>↻ Scan</strong>, then run an EXIF scan to build the photo timeline.</p>
   </div>
   <div id="tl-content" style="display:none">
     <div class="timeline-toolbar">
-      <div class="view-toggle">
-        <button id="view-timeline" class="vtbtn active" data-view="timeline">Timeline</button>
-        <button id="view-albums"   class="vtbtn"        data-view="albums">Albums</button>
-      </div>
       <div id="date-chip" class="hidden"></div>
       <div class="spacer"></div>
       <span id="exif-status"></span>
       <button id="btn-exiftool" class="btn btn-success">Run EXIF Scan</button>
       <button id="month-btn" class="btn">Jump to Month ▾</button>
     </div>
-    <div id="tl-breadcrumb" class="hidden"></div>
     <div id="tl-main"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════ ALBUMS PANEL ══════════════════════════════════ -->
+<div class="panel" id="panel-albums">
+  <div id="al-empty" class="empty-state">
+    <h2>No scan data yet</h2>
+    <p>Select a scan and click <strong>↻ Scan</strong>, then run an EXIF scan to browse albums.</p>
+  </div>
+  <div id="al-content" style="display:none">
+    <div id="al-breadcrumb" class="hidden"></div>
+    <div id="al-main"></div>
   </div>
 </div>
 
@@ -685,7 +693,7 @@ async function api(method, url, body) {
 const state = {
   scans: [],
   currentScan: 0,
-  activeTab: 'disk',
+  activeTab: 'timeline',
   // Disk
   diskData: null,
   diskNav: [],
@@ -704,9 +712,8 @@ const state = {
   tlGroups: [],
   tlActiveMonth: null,
   tlPickerOpen: false,
-  tlView: 'timeline',   // 'timeline' | 'albums'
-  tlFilterDir: null,
-  tlAlbumBreadcrumb: [],
+  alBreadcrumb: [],     // [{name, path}] navigation trail for Albums tab
+  alFilterDir: null,    // when set, Albums tab shows a justified photo grid
   tlLbIndex: -1,
   tlHasExif: false,
 };
@@ -784,13 +791,14 @@ document.querySelectorAll('.tabnav-btn').forEach(btn => {
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     document.getElementById(`panel-${state.activeTab}`).classList.add('active');
     window.scrollTo(0, 0);
-    if (state.activeTab !== 'timeline') {
-      document.getElementById('timeline-scrubber').classList.add('hidden');
-    } else if (state.tlView === 'timeline' && state.tlGroups.length) {
-      document.getElementById('timeline-scrubber').classList.remove('hidden');
-    }
+    // Scrubber only belongs to the timeline tab
+    document.getElementById('timeline-scrubber').classList.toggle(
+      'hidden', state.activeTab !== 'timeline' || !state.tlGroups.length
+    );
     if (state.activeTab !== 'dups') document.getElementById('fab').classList.add('hidden');
     else updateFab();
+    // Auto-load albums when switching to that tab
+    if (state.activeTab === 'albums') renderAlbumTab();
   });
 });
 
@@ -1284,16 +1292,11 @@ function renderTimeline() {
     ? `${fmtN(state.tlPhotos.length)} photos with EXIF`
     : `${fmtN(state.tlPhotos.length)} media files — no EXIF yet`;
 
-  // Only show month/scrubber controls if we have dates
   const hasDates = state.tlPhotos.some(p => p.date);
-  document.getElementById('month-btn').style.display   = (state.tlView === 'timeline' && hasDates) ? '' : 'none';
-  document.getElementById('date-chip').classList.toggle('hidden', state.tlView !== 'timeline' || !hasDates);
+  document.getElementById('month-btn').style.display = hasDates ? '' : 'none';
+  document.getElementById('date-chip').classList.toggle('hidden', !hasDates);
 
-  if (state.tlView === 'albums') {
-    loadAlbums(null);
-  } else {
-    renderTimelineGrid();
-  }
+  renderTimelineGrid();
 }
 
 // Grouping (month → day → photos)
@@ -1375,12 +1378,10 @@ function renderTimelineGrid() {
   const main = document.getElementById('tl-main');
   main.innerHTML = '';
 
-  const photos = state.tlFilterDir
-    ? state.tlPhotos.filter(p => p.path.startsWith(state.tlFilterDir + '/') || p.path.startsWith(state.tlFilterDir + '\\'))
-    : state.tlPhotos;
+  const photos = state.tlPhotos;
 
   if (!photos.length) {
-    main.innerHTML = `<div class="empty-state" style="min-height:60vh"><h2>${state.tlFilterDir ? 'No photos in this album' : 'No photos found'}</h2></div>`;
+    main.innerHTML = `<div class="empty-state" style="min-height:60vh"><h2>No photos found</h2></div>`;
     return;
   }
 
@@ -1492,7 +1493,7 @@ function onTlScroll() {
 }
 function updateDateChip() {
   const chip = document.getElementById('date-chip');
-  if (!state.tlActiveMonth || state.tlView !== 'timeline') { chip.classList.add('hidden'); return; }
+  if (!state.tlActiveMonth) { chip.classList.add('hidden'); return; }
   chip.textContent = fmtMonthKey(state.tlActiveMonth);
   chip.classList.remove('hidden');
 }
@@ -1556,7 +1557,7 @@ function scrollFrac() { const m = document.body.scrollHeight - window.innerHeigh
 function buildScrubber() {
   const scrubber = document.getElementById('timeline-scrubber');
   scrubber.querySelectorAll('.scrubber-year').forEach(el => el.remove());
-  if (state.tlView !== 'timeline' || !state.tlGroups.length || state.activeTab !== 'timeline') {
+  if (!state.tlGroups.length || state.activeTab !== 'timeline') {
     scrubber.classList.add('hidden'); return;
   }
   scrubber.classList.remove('hidden');
@@ -1627,37 +1628,26 @@ let tlResizeTimer = null;
 new ResizeObserver(() => {
   clearTimeout(tlResizeTimer);
   tlResizeTimer = setTimeout(() => {
-    if (state.activeTab === 'timeline' && state.tlView === 'timeline' && state.tlPhotos.length) renderTimelineGrid();
+    if (state.activeTab === 'timeline' && state.tlPhotos.length) renderTimelineGrid();
   }, 200);
 }).observe(document.getElementById('tl-main'));
 
-// View toggle
-document.querySelectorAll('.vtbtn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const view = btn.dataset.view;
-    document.querySelectorAll('.vtbtn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    state.tlView = view;
-    state.tlFilterDir = null;
-    if (view === 'albums') {
-      state.tlAlbumBreadcrumb = [{ name: 'Albums', path: null }];
-      renderTlBreadcrumb();
-      loadAlbums(null);
-      document.getElementById('timeline-scrubber').classList.add('hidden');
-      document.getElementById('month-btn').style.display = 'none';
-      document.getElementById('date-chip').classList.add('hidden');
-    } else {
-      state.tlAlbumBreadcrumb = [];
-      renderTlBreadcrumb();
-      renderTimelineGrid();
-      document.getElementById('month-btn').style.display = '';
-    }
-  });
-});
+// ── Albums tab ────────────────────────────────────────────────────────────────
+function renderAlbumTab() {
+  const hasData = state.tlPhotos.length > 0;
+  document.getElementById('al-empty').style.display   = hasData ? 'none' : '';
+  document.getElementById('al-content').style.display = hasData ? '' : 'none';
+  if (!hasData) return;
+  // If already showing something (e.g. user switched away and back), keep it
+  if (document.getElementById('al-main').children.length) return;
+  state.alBreadcrumb = [];
+  state.alFilterDir  = null;
+  renderAlBreadcrumb();
+  loadAlbums(null);
+}
 
-// Albums
 async function loadAlbums(dir) {
-  const main = document.getElementById('tl-main');
+  const main = document.getElementById('al-main');
   const url = `/api/albums/${state.currentScan}` + (dir ? `?dir=${encodeURIComponent(dir)}` : '');
   try {
     const { albums } = await api('GET', url);
@@ -1700,19 +1690,55 @@ function makeAlbumCard(album) {
 }
 
 function openAlbum(album) {
-  state.tlAlbumBreadcrumb.push({ name: album.name, path: album.path });
-  renderTlBreadcrumb();
-  if (album.hasSubAlbums) { loadAlbums(album.path); }
-  else {
-    state.tlView = 'timeline'; state.tlFilterDir = album.path;
-    document.querySelectorAll('.vtbtn').forEach(b => b.classList.toggle('active', b.dataset.view === 'timeline'));
-    renderTimelineGrid();
+  state.alBreadcrumb.push({ name: album.name, path: album.path });
+  renderAlBreadcrumb();
+  if (album.hasSubAlbums) {
+    loadAlbums(album.path);
+  } else {
+    // Leaf album: show a justified photo grid within the Albums tab
+    state.alFilterDir = album.path;
+    showAlbumPhotos(album.path);
   }
 }
 
-function renderTlBreadcrumb() {
-  const el = document.getElementById('tl-breadcrumb');
-  const bc = state.tlAlbumBreadcrumb;
+function showAlbumPhotos(dir) {
+  const main = document.getElementById('al-main');
+  main.innerHTML = '';
+  const photos = state.tlPhotos.filter(p =>
+    p.path.startsWith(dir + '/') || p.path.startsWith(dir + '\\')
+  );
+  if (!photos.length) {
+    main.innerHTML = '<div class="empty-state" style="min-height:40vh"><h2>No photos in this album</h2></div>';
+    return;
+  }
+  const groups = groupPhotos(photos);
+  setupLazyLoad();
+  const containerW = main.clientWidth || (window.innerWidth - 54);
+  for (const group of groups) {
+    const sec = document.createElement('div');
+    sec.className = 'month-section';
+    const hdr = document.createElement('div');
+    hdr.className = 'month-header';
+    hdr.innerHTML = `${esc(group.monthLabel)} <span class="month-header-count">${fmtN(group.count)} photos</span>`;
+    sec.appendChild(hdr);
+    for (const day of group.days) {
+      const dl = document.createElement('div');
+      dl.className = 'day-label'; dl.textContent = day.dayLabel;
+      sec.appendChild(dl);
+      for (const row of computeRows(day.photos, containerW)) {
+        const rowEl = document.createElement('div');
+        rowEl.className = 'photo-row';
+        for (const { photo, width, height } of row) rowEl.appendChild(makeTile(photo, width, height));
+        sec.appendChild(rowEl);
+      }
+    }
+    main.appendChild(sec);
+  }
+}
+
+function renderAlBreadcrumb() {
+  const el = document.getElementById('al-breadcrumb');
+  const bc = state.alBreadcrumb;
   if (!bc.length) { el.classList.add('hidden'); return; }
   el.classList.remove('hidden');
   el.innerHTML = bc.map((crumb, i) => {
@@ -1724,13 +1750,10 @@ function renderTlBreadcrumb() {
   el.querySelectorAll('[data-nav]').forEach(el2 => {
     el2.addEventListener('click', () => {
       const idx = parseInt(el2.dataset.nav);
-      state.tlAlbumBreadcrumb = state.tlAlbumBreadcrumb.slice(0, idx + 1);
-      renderTlBreadcrumb();
-      const crumb = state.tlAlbumBreadcrumb[idx];
-      state.tlFilterDir = null;
-      state.tlView = 'albums';
-      document.querySelectorAll('.vtbtn').forEach(b => b.classList.toggle('active', b.dataset.view === 'albums'));
-      loadAlbums(crumb.path);
+      state.alBreadcrumb = state.alBreadcrumb.slice(0, idx + 1);
+      state.alFilterDir = null;
+      renderAlBreadcrumb();
+      loadAlbums(state.alBreadcrumb[idx].path);
     });
   });
 }
