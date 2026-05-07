@@ -252,6 +252,31 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   max-width: 70vw;
 }
 
+.lb-date-row {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-dim); margin-bottom: 2px;
+}
+.lb-edit-btn {
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; font-size: 14px; padding: 0 3px; line-height: 1;
+  transition: color .15s;
+}
+.lb-edit-btn:hover { color: var(--accent); }
+.lb-date-input {
+  background: #222; color: var(--text); border: 1px solid #444;
+  border-radius: 4px; padding: 3px 7px; font-size: 12px;
+  color-scheme: dark; font-family: inherit;
+}
+.lb-date-action {
+  background: #2a2a2a; color: var(--text); border: 1px solid #3a3a3a;
+  border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+  transition: background .15s;
+}
+.lb-date-action:hover { background: #333; }
+.lb-date-action.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.lb-date-action.primary:hover { background: #3a8ee8; }
+.lb-date-action:disabled { opacity: .5; cursor: default; }
+
 /* ── Timeline scrubber ───────────────────────────────────────────────────── */
 #timeline-scrubber {
   position: fixed; right: 0; top: var(--hh); bottom: 0;
@@ -405,6 +430,15 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <div id="lb-media"></div>
     <div class="lb-info">
       <div class="lb-filename" id="lb-filename"></div>
+      <div class="lb-date-row" id="lb-date-row">
+        <span id="lb-date-display"></span>
+        <button class="lb-edit-btn" id="lb-edit-btn" onclick="enterDateEdit()" title="Edit date">✎</button>
+        <span id="lb-date-edit-form" style="display:none;align-items:center;gap:6px">
+          <input type="datetime-local" id="lb-date-input" class="lb-date-input">
+          <button class="lb-date-action primary" id="lb-date-save" onclick="saveDateEdit()">Save</button>
+          <button class="lb-date-action" onclick="exitDateEdit()">Cancel</button>
+        </span>
+      </div>
       <div class="lb-meta" id="lb-meta"></div>
       <div class="lb-path" id="lb-path"></div>
     </div>
@@ -857,8 +891,15 @@ function renderLightbox() {
 
   // Info
   document.getElementById('lb-filename').textContent = photoFilename(photo);
+  document.getElementById('lb-date-display').textContent = fmtDatetime(photo.date);
+  document.getElementById('lb-date-input').value = photo.date.slice(0, 16);
+  document.getElementById('lb-date-edit-form').style.display = 'none';
+  document.getElementById('lb-edit-btn').style.display = '';
+  const saveBtn = document.getElementById('lb-date-save');
+  saveBtn.disabled = false;
+  saveBtn.textContent = 'Save';
   document.getElementById('lb-meta').textContent =
-    [fmtDatetime(photo.date), fmtSize(photo.size), photoExt(photo)].filter(Boolean).join(' · ');
+    [fmtSize(photo.size), photoExt(photo)].filter(Boolean).join(' · ');
   document.getElementById('lb-path').textContent = photo.path;
 
   // Arrows
@@ -869,6 +910,11 @@ function renderLightbox() {
 // Keyboard navigation — also block scroll keys so the background doesn't move
 document.addEventListener('keydown', e => {
   if (document.getElementById('lightbox').classList.contains('hidden')) return;
+  // While the date edit form is open, Escape cancels it; block all other lightbox keys
+  if (document.getElementById('lb-date-edit-form').style.display !== 'none') {
+    if (e.key === 'Escape') exitDateEdit();
+    return;
+  }
   if (e.key === 'Escape') { closeLightbox(); return; }
   if (e.key === 'ArrowLeft')  navigateLightbox(-1);
   if (e.key === 'ArrowRight') navigateLightbox(1);
@@ -877,6 +923,59 @@ document.addEventListener('keydown', e => {
 
 // Block wheel scroll from reaching the background while lightbox is open
 document.getElementById('lightbox').addEventListener('wheel', e => e.preventDefault(), { passive: false });
+
+// ── Date editing ──────────────────────────────────────────────────────────────
+function enterDateEdit() {
+  document.getElementById('lb-edit-btn').style.display = 'none';
+  const form = document.getElementById('lb-date-edit-form');
+  form.style.display = 'flex';
+  document.getElementById('lb-date-input').focus();
+}
+
+function exitDateEdit() {
+  document.getElementById('lb-date-edit-form').style.display = 'none';
+  document.getElementById('lb-edit-btn').style.display = '';
+  const btn = document.getElementById('lb-date-save');
+  btn.disabled = false;
+  btn.textContent = 'Save';
+}
+
+async function saveDateEdit() {
+  const photo = state.photos[state.lbIndex];
+  const inputEl = document.getElementById('lb-date-input');
+  if (!inputEl.value) return;
+
+  const [datePart, timePart = '00:00'] = inputEl.value.split('T');
+  const exifDatetime = `${datePart.replace(/-/g, ':')} ${timePart}:00`;
+  const newIso = `${datePart}T${timePart}:00.000Z`;
+
+  const saveBtn = document.getElementById('lb-date-save');
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving…';
+
+  try {
+    const res = await fetch('/api/update-date', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: photo.path, datetime: exifDatetime }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to update date');
+
+    photo.date = data.date;
+    state.photos.sort((a, b) => b.date.localeCompare(a.date));
+
+    const d = new Date(data.date);
+    const mk = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;
+    closeLightbox();
+    render();
+    requestAnimationFrame(() => jumpToMonth(mk));
+  } catch (e) {
+    alert('Error saving date: ' + e.message);
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save';
+  }
+}
 
 // ── API calls ─────────────────────────────────────────────────────────────────
 async function loadConfig() {

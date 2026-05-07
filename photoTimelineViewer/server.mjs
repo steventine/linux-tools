@@ -380,6 +380,53 @@ app.post('/api/refresh/:index', async (req, res) => {
   }
 });
 
+app.post('/api/update-date', async (req, res) => {
+  const { path: fp, datetime } = req.body;
+  if (!fp || !isAllowedPath(fp)) return res.status(403).json({ error: 'Forbidden' });
+  if (!/^\d{4}:\d{2}:\d{2} \d{2}:\d{2}:\d{2}$/.test(datetime)) {
+    return res.status(400).json({ error: 'Invalid datetime format' });
+  }
+  try {
+    await execFileAsync('exiftool', [
+      `-DateTimeOriginal=${datetime}`,
+      '-overwrite_original',
+      fp,
+    ]);
+
+    // Re-read using the same exiftool fields as the scan so the cached date
+    // exactly matches what a full rescan would produce.
+    const { stdout } = await execFileAsync('exiftool', [
+      '-csv',
+      '-DateTimeOriginal', '-CreateDate', '-FileModifyDate',
+      fp,
+    ]);
+    const lines = stdout.trim().split('\n');
+    const headers = csvRow(lines[0] ?? '');
+    const col = name => headers.indexOf(name);
+    const f = csvRow(lines[1] ?? '');
+    const date = parseExifDate(f[col('DateTimeOriginal')])
+      ?? parseExifDate(f[col('CreateDate')])
+      ?? parseExifDate(f[col('FileModifyDate')])
+      ?? new Date(0);
+
+    // Patch whichever cache contains this file so the timeline updates without a rescan
+    for (let i = 0; i < config.scans.length; i++) {
+      const cache = await readCache(i);
+      if (!cache) continue;
+      const entry = cache.photos.find(p => p.path === fp);
+      if (!entry) continue;
+      entry.date = date.toISOString();
+      cache.photos.sort((a, b) => b.date.localeCompare(a.date));
+      await writeFile(cacheFile(i), JSON.stringify(cache), 'utf8');
+      break;
+    }
+    res.json({ ok: true, date: date.toISOString() });
+  } catch (e) {
+    console.error('update-date error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // createReadStream's error event fires asynchronously after the try/catch exits,
 // so we must attach an error listener or Node crashes on any read failure.
 function pipeFile(src, res) {
