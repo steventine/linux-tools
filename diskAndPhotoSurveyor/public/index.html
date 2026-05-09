@@ -113,6 +113,17 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
    ════════════════════════════════════════════════════════════════════════════ */
 #panel-disk { padding: 16px; padding-bottom: 40px; }
 
+.disk-photo-btn {
+  margin-left: 8px; padding: 1px 7px;
+  border: 1px solid #3a3a3a; border-radius: 50px;
+  background: transparent; color: var(--text-dim);
+  font-size: 11px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.disk-photo-btn:hover {
+  background: rgba(74,158,255,.15); color: var(--accent); border-color: var(--accent);
+}
+
 .disk-stats-row {
   display: flex; gap: 24px; flex-wrap: wrap;
   background: var(--bg-surface); border: 1px solid var(--border);
@@ -371,6 +382,7 @@ tr:hover td { background: rgba(255,255,255,.025); }
   background: var(--bg-header); border-bottom: 1px solid #1e1e1e;
 }
 #tl-breadcrumb.hidden { display: none; }
+#al-breadcrumb.hidden { display: none; }
 .crumb { color: var(--accent); cursor: pointer; }
 .crumb:hover { text-decoration: underline; }
 .crumb.current { color: var(--text); cursor: default; }
@@ -586,7 +598,7 @@ tr:hover td { background: rgba(255,255,255,.025); }
     <p>Select a scan and click <strong>↻ Scan</strong>, then run an EXIF scan to browse albums.</p>
   </div>
   <div id="al-content" style="display:none">
-    <div id="al-breadcrumb" class="hidden"></div>
+    <div id="al-breadcrumb" class="disk-breadcrumb hidden"></div>
     <div id="al-main"></div>
   </div>
 </div>
@@ -714,6 +726,7 @@ const state = {
   tlPickerOpen: false,
   alBreadcrumb: [],     // [{name, path}] navigation trail for Albums tab
   alFilterDir: null,    // when set, Albums tab shows a justified photo grid
+  alJumpTarget: null,   // { path, name } — set by disk→albums jump, consumed by renderAlbumTab
   tlLbIndex: -1,
   tlHasExif: false,
 };
@@ -842,6 +855,14 @@ async function loadAllData() {
   renderDisk();
   renderDups();
   renderTimeline();
+
+  // Reset Albums tab so it reloads fresh for the new scan
+  state.alBreadcrumb = [];
+  state.alFilterDir  = null;
+  state.alJumpTarget = null;
+  document.getElementById('al-main').innerHTML = '';
+  renderAlBreadcrumb();
+  if (state.activeTab === 'albums') renderAlbumTab();
 }
 
 function updateStatusText() {
@@ -904,18 +925,19 @@ function renderDiskTable() {
   const rootSize   = state.diskRootSize;
 
   // Breadcrumb
-  document.getElementById('disk-breadcrumb').innerHTML = state.diskNav.map((n, i) => {
+  const bcEl = document.getElementById('disk-breadcrumb');
+  bcEl.innerHTML = state.diskNav.map((n, i) => {
     const isLast = i === state.diskNav.length - 1;
     const sep = i > 0 ? '<span class="crumb-sep"> › </span>' : '';
     if (isLast) return `${sep}<span class="crumb current">${esc(n.name)}</span>`;
     return `${sep}<span class="crumb" data-nav="${i}">${esc(n.name)}</span>`;
   }).join('');
-  document.querySelectorAll('.disk-breadcrumb [data-nav]').forEach(el => {
-    el.addEventListener('click', () => {
-      state.diskNav = state.diskNav.slice(0, parseInt(el.dataset.nav) + 1);
-      renderDiskTable();
-    });
-  });
+  bcEl.onclick = e => {
+    const crumb = e.target.closest('[data-nav]');
+    if (!crumb) return;
+    state.diskNav = state.diskNav.slice(0, parseInt(crumb.dataset.nav) + 1);
+    renderDiskTable();
+  };
 
   const children = Object.values(node.children ?? {}).sort((a, b) => b.size - a.size);
   const tbody = document.getElementById('disk-tbody');
@@ -926,11 +948,16 @@ function renderDiskTable() {
     const pctParent = parentSize > 0 ? child.size / parentSize * 100 : 0;
     const pctRoot   = rootSize   > 0 ? child.size / rootSize   * 100 : 0;
 
+    const photoCount = state.tlPhotos.length
+      ? state.tlPhotos.filter(p => p.path.startsWith(child.path + '/') || p.path.startsWith(child.path + '\\')).length
+      : 0;
+
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><div class="name-cell">
         <span class="name-icon">${hasChildren ? '📁' : '📄'}</span>
         <span class="${hasChildren ? 'name-link' : 'not-dir'}">${esc(child.name)}</span>
+        ${photoCount > 0 ? `<button class="disk-photo-btn" title="View photos in Albums tab">📷 ${fmtN(photoCount)}</button>` : ''}
       </div></td>
       <td style="text-align:right;white-space:nowrap">${fmtSize(child.size)}</td>
       <td style="text-align:right;color:var(--text-dim)">${fmtN(child.fileCount)}</td>
@@ -944,6 +971,13 @@ function renderDiskTable() {
       tr.querySelector('.name-link').addEventListener('click', () => {
         state.diskNav.push(child);
         renderDiskTable();
+      });
+    }
+    const photoBtn = tr.querySelector('.disk-photo-btn');
+    if (photoBtn) {
+      photoBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        jumpToAlbums(child.path, child.name);
       });
     }
     tbody.appendChild(tr);
@@ -1638,12 +1672,35 @@ function renderAlbumTab() {
   document.getElementById('al-empty').style.display   = hasData ? 'none' : '';
   document.getElementById('al-content').style.display = hasData ? '' : 'none';
   if (!hasData) return;
+
+  if (state.alJumpTarget) {
+    const { trail } = state.alJumpTarget;
+    state.alJumpTarget = null;
+    state.alBreadcrumb = trail;
+    state.alFilterDir  = null;
+    document.getElementById('al-main').innerHTML = '';
+    renderAlBreadcrumb();
+    loadAlbums(trail[trail.length - 1].path);
+    return;
+  }
+
   // If already showing something (e.g. user switched away and back), keep it
   if (document.getElementById('al-main').children.length) return;
   state.alBreadcrumb = [];
   state.alFilterDir  = null;
   renderAlBreadcrumb();
   loadAlbums(null);
+}
+
+function jumpToAlbums(dirPath, dirName) {
+  // Build full breadcrumb trail: skip the virtual "/" root (index 0), include
+  // every real directory the user navigated into, then append the clicked child.
+  const trail = [
+    ...state.diskNav.slice(1).map(n => ({ name: n.name, path: n.path })),
+    { name: dirName, path: dirPath },
+  ];
+  state.alJumpTarget = { trail };
+  document.querySelector('.tabnav-btn[data-tab="albums"]').click();
 }
 
 async function loadAlbums(dir) {
@@ -1653,7 +1710,13 @@ async function loadAlbums(dir) {
     const { albums } = await api('GET', url);
     main.innerHTML = '';
     if (!albums.length) {
-      main.innerHTML = '<div class="empty-state" style="min-height:50vh"><h2>No sub-albums found</h2></div>';
+      if (dir) {
+        // Leaf directory with no sub-folders: show photos directly
+        state.alFilterDir = dir;
+        showAlbumPhotos(dir);
+      } else {
+        main.innerHTML = '<div class="empty-state" style="min-height:50vh"><h2>No sub-albums found</h2></div>';
+      }
       return;
     }
     const grid = document.createElement('div');
@@ -1739,23 +1802,37 @@ function showAlbumPhotos(dir) {
 function renderAlBreadcrumb() {
   const el = document.getElementById('al-breadcrumb');
   const bc = state.alBreadcrumb;
-  if (!bc.length) { el.classList.add('hidden'); return; }
+  if (!bc.length) { el.innerHTML = ''; el.classList.add('hidden'); return; }
   el.classList.remove('hidden');
-  el.innerHTML = bc.map((crumb, i) => {
+
+  // Prepend a root "Albums" entry (index 0 = root sentinel, bc items start at index 1)
+  const all = [{ name: '🗂 Albums', path: null }, ...bc];
+  el.innerHTML = all.map((crumb, i) => {
     const sep = i > 0 ? '<span class="crumb-sep"> › </span>' : '';
-    const isLast = i === bc.length - 1;
+    const isLast = i === all.length - 1;
     if (isLast) return `${sep}<span class="crumb current">${esc(crumb.name)}</span>`;
-    return `${sep}<span class="crumb" data-nav="${i}">${esc(crumb.name)}</span>`;
+    return `${sep}<span class="crumb" data-ci="${i}">${esc(crumb.name)}</span>`;
   }).join('');
-  el.querySelectorAll('[data-nav]').forEach(el2 => {
-    el2.addEventListener('click', () => {
-      const idx = parseInt(el2.dataset.nav);
-      state.alBreadcrumb = state.alBreadcrumb.slice(0, idx + 1);
-      state.alFilterDir = null;
+
+  el.onclick = e => {
+    const crumb = e.target.closest('[data-ci]');
+    if (!crumb) return;
+    const i = parseInt(crumb.dataset.ci);
+    if (i === 0) {
+      // Back to root albums view
+      state.alBreadcrumb = [];
+      state.alFilterDir  = null;
+      document.getElementById('al-main').innerHTML = '';
       renderAlBreadcrumb();
-      loadAlbums(state.alBreadcrumb[idx].path);
-    });
-  });
+      loadAlbums(null);
+    } else {
+      const bcIdx = i - 1;
+      state.alBreadcrumb = state.alBreadcrumb.slice(0, bcIdx + 1);
+      state.alFilterDir  = null;
+      renderAlBreadcrumb();
+      loadAlbums(state.alBreadcrumb[bcIdx].path);
+    }
+  };
 }
 
 // Lightbox

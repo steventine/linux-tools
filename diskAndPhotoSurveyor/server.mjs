@@ -175,6 +175,7 @@ app.get('/api/albums/:index', (req, res) => {
   for (const photo of photos) {
     const base = baseDir || roots.find(r => photo.path.startsWith(r + '/') || photo.path.startsWith(r + path.sep));
     if (!base) continue;
+    if (!(photo.path.startsWith(base + '/') || photo.path.startsWith(base + path.sep))) continue;
     const rel = photo.path.slice(base.length).replace(/^[/\\]/, '');
     const sep = rel.search(/[/\\]/);
     if (sep === -1) continue;
